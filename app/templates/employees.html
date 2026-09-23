@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Сотрудники{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Сотрудники</h1>
+  <a class="button primary" href="/employees/new">Добавить сотрудника</a>
+</div>
+<p class="muted">Кто может входить в панель и пользоваться ботом. Роль определяет, какие данные человек увидит.</p>
+<section class="card">
+<table class="table">
+  <thead><tr><th>Сотрудник</th><th>Роль</th><th>Вход в панель</th><th>Бот</th><th>Последний вход</th></tr></thead>
+  <tbody>
+  {% for u in users %}
+  <tr class="{{ '' if u.active else 'off' }}">
+    <td><a href="/employees/{{ u.id }}">{{ u.full_name or u.login }}</a>{% if not u.active %} <span class="muted">(отключён)</span>{% endif %}
+      {% if u.phone %}<small class="muted block">{{ u.phone }}</small>{% endif %}</td>
+    <td>{{ ROLES[u.role] }}</td>
+    <td>{% if u.password_hash and u.login %}{{ u.login }}{% if u.must_change_password %} <small class="muted">(сменит пароль при входе)</small>{% endif %}{% else %}<span class="muted">нет</span>{% endif %}</td>
+    <td>{% if u.max_id %}MAX{% endif %}{% if u.max_id and u.telegram_id %}, {% endif %}{% if u.telegram_id %}Telegram{% endif %}{% if not u.max_id and not u.telegram_id %}<span class="muted">не привязан</span>{% endif %}</td>
+    <td class="nowrap">{{ u.last_login_at | dt }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+<section class="card">
+  <h2>Роли</h2>
+  <dl class="roles">
+  {% for key, title in ROLES.items() %}<dt>{{ title }}</dt><dd>{{ descriptions[key] }}</dd>{% endfor %}
+  </dl>
+</section>
+{% endblock %}

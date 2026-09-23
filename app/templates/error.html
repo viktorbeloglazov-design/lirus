@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="error-page">
+  <div class="error-code">{{ code }}</div>
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  {% if action %}<div class="todo"><b>Что делать:</b> {{ action }}</div>{% endif %}
+  <p><a class="button" href="/">На главную</a> <button type="button" class="ghost" data-back>Назад</button></p>
+</div>
+{% endblock %}
+{% block solo %}
+<div class="card narrow error-page">
+  <div class="error-code">{{ code }}</div>
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  {% if action %}<div class="todo"><b>Что делать:</b> {{ action }}</div>{% endif %}
+  <p><a class="button" href="/login">Ко входу</a></p>
+</div>
+{% endblock %}

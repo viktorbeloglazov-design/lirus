@@ -1,0 +1,35 @@
+{% macro status_badge(status) -%}
+<span class="badge badge-{{ status }}"><i></i>{{ STATUS_TITLES.get(status, status) }}</span>
+{%- endmacro %}
+
+{% macro field(fv) -%}
+{% set f = fv.f %}
+<div class="field {{ 'has-error' if fv.error }} field-{{ f.kind }}">
+  {% if f.kind == 'checkbox' %}
+  <label class="check"><input type="checkbox" name="{{ f.name }}" value="1" {{ 'checked' if fv.value }}> {{ f.label }}</label>
+  {% else %}
+  <label for="f_{{ f.name }}">{{ f.label }}{% if f.required %} <span class="req" title="Обязательное поле">*</span>{% endif %}</label>
+  {% if f.kind == 'select' %}
+  <select id="f_{{ f.name }}" name="{{ f.name }}">
+    {% for val, title in f.options %}<option value="{{ val }}" {{ 'selected' if val == fv.value }}>{{ title }}</option>{% endfor %}
+  </select>
+  {% elif f.kind == 'textarea' %}
+  <textarea id="f_{{ f.name }}" name="{{ f.name }}" rows="3" placeholder="{{ f.placeholder }}">{{ fv.value }}</textarea>
+  {% elif f.kind == 'secret' %}
+  <div class="secret">
+    <input id="f_{{ f.name }}" name="{{ f.name }}" type="password" autocomplete="new-password" spellcheck="false"
+           placeholder="{{ ('Сохранено: ' ~ fv.masked ~ ' — оставьте пустым, чтобы не менять') if fv.masked else f.placeholder }}">
+    <button type="button" class="ghost small" data-toggle-secret="f_{{ f.name }}">Показать</button>
+  </div>
+  {% else %}
+  <input id="f_{{ f.name }}" name="{{ f.name }}" type="text" value="{{ fv.value }}" placeholder="{{ f.placeholder }}"
+         {% if f.kind in ('url',) or f.ascii_only %}spellcheck="false" autocomplete="off"{% endif %}
+         {% if f.kind == 'number' %}inputmode="decimal"{% endif %}>
+  {% endif %}
+  {% endif %}
+  {% if fv.error %}<div class="error-text">{{ fv.error }}</div>{% endif %}
+  {% if f.hint %}<div class="hint">{{ f.hint }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro csrf_field() -%}<input type="hidden" name="csrf" value="{{ csrf }}">{%- endmacro %}

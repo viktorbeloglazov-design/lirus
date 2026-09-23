@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge with context %}
+{% block title %}Тестирование{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Тестирование</h1>
+  <div class="actions">
+    <form method="post" action="/testing/run" data-busy="Проверяем сервер, сеть и все подключения… обычно 10–30 секунд">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="primary big" type="submit">Проверить всё</button>
+    </form>
+    {% if result %}<a class="button ghost" href="/testing/report">Скачать отчёт</a>{% endif %}
+  </div>
+</div>
+<p class="muted">Одна кнопка проверяет сервер, доступ в интернет и все подключения сразу. Отчёт — текстовый файл для разработчика, паролей и токенов в нём нет.</p>
+
+{% if not result %}
+<section class="card empty"><p>Проверка ещё не запускалась. Нажмите «Проверить всё».</p></section>
+{% else %}
+<div class="summary">
+  <span class="sum sum-ok"><b>{{ result.summary.ok or 0 }}</b> работает</span>
+  <span class="sum sum-warn"><b>{{ result.summary.warn or 0 }}</b> внимание</span>
+  <span class="sum sum-error"><b>{{ result.summary.error or 0 }}</b> ошибок</span>
+  <span class="muted">Проверено {{ result.ts | dt(true) }} · заняло {{ result.duration }} с · {{ result.user }}</span>
+</div>
+{% for g in result.groups %}
+<section class="card test-group">
+  <h2>{{ status_badge(g.status) }} {{ g.title }}</h2>
+  <ul class="checks">
+    {% for it in g['items'] %}
+    <li class="check-item check-{{ it.status }}">
+      <span class="dot" title="{{ STATUS_TITLES[it.status] }}"></span>
+      <div>
+        <div class="check-title">{% if it.connection_id %}<a href="/connections/{{ it.connection_id }}">{{ it.title }}</a>{% else %}{{ it.title }}{% endif %}</div>
+        <div class="check-msg">{{ it.message }}</div>
+        {% if it.action and it.status != 'ok' %}<div class="todo"><b>Что делать:</b> {{ it.action }}</div>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

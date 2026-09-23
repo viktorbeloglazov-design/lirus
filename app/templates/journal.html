@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Журнал{% endblock %}
+{% block content %}
+<h1>Журнал событий</h1>
+<p class="muted">Кто что делал и что пошло не так. Записи старше {{ retention }} дней удаляются автоматически (срок меняется в «Настройках»).</p>
+<form class="filters card" method="get" action="/journal">
+  <label>Важность
+    <select name="level"><option value="">Все</option>{% for k, t in LEVELS.items() %}<option value="{{ k }}" {{ 'selected' if level == k }}>{{ t }}</option>{% endfor %}</select></label>
+  <label>Раздел
+    <select name="section"><option value="">Все</option>{% for k, t in SECTIONS.items() %}<option value="{{ k }}" {{ 'selected' if section == k }}>{{ t }}</option>{% endfor %}</select></label>
+  <label class="grow">Поиск <input name="q" value="{{ q }}" placeholder="слово из сообщения или логин"></label>
+  <button class="primary" type="submit">Показать</button>
+  {% if level or section or q %}<a class="button ghost" href="/journal">Сбросить</a>{% endif %}
+</form>
+<section class="card">
+  <p class="muted">Найдено записей: {{ total }}</p>
+  {% if rows %}
+  <table class="table journal">
+    <thead><tr><th>Время</th><th>Важность</th><th>Раздел</th><th>Событие</th><th>Кто</th></tr></thead>
+    <tbody>
+    {% for e in rows %}
+    <tr class="lvl-{{ e.level }}">
+      <td class="nowrap">{{ e.ts | dt(true) }}</td>
+      <td><span class="lvl lvl-{{ e.level }}">{{ LEVELS.get(e.level, e.level) }}</span></td>
+      <td>{{ SECTIONS.get(e.section, e.section) }}</td>
+      <td>{{ e.message }}{% if e.details %}<small class="muted block">{{ e.details }}</small>{% endif %}</td>
+      <td class="nowrap">{{ e.user_login }}{% if e.ip %}<small class="muted block">{{ e.ip }}</small>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>Ничего не найдено.</p>{% endif %}
+  {% if pages > 1 %}
+  <nav class="pager">
+    {% if page_no > 1 %}<a class="button ghost small" href="?level={{ level }}&section={{ section }}&q={{ q | urlencode }}&page={{ page_no - 1 }}">← Новее</a>{% endif %}
+    <span class="muted">Страница {{ page_no }} из {{ pages }}</span>
+    {% if page_no < pages %}<a class="button ghost small" href="?level={{ level }}&section={{ section }}&q={{ q | urlencode }}&page={{ page_no + 1 }}">Старее →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

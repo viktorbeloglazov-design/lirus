@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Перезапуск{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Платформа перезапускается</h1>
+  <p>Это займёт 5–15 секунд. Страница обновится сама.</p>
+  <p class="muted">Если вы меняли порт, панель откроется по новому адресу: <b>http://localhost:{{ port }}</b> (на сервере).</p>
+  <div class="spinner" data-wait-restart="{{ port }}"></div>
+</div>
+{% endblock %}

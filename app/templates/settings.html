@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% macro err(name) %}{% if errors.get(name) %}<div class="error-text">{{ errors[name] }}</div>{% endif %}{% endmacro %}
+{% block content %}
+<h1>Настройки</h1>
+{% if form_error %}<div class="flash flash-error">{{ form_error }}</div>{% endif %}
+<form class="card form" method="post" action="/settings" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <h2>Общие</h2>
+  <div class="field"><label for="company_name">Название компании</label>
+    <input id="company_name" name="company_name" value="{{ s.company_name }}" placeholder="ООО «Ромашка»">
+    <div class="hint">Показывается в шапке панели.</div></div>
+
+  <h2>Доступ снаружи</h2>
+  <div class="field {{ 'has-error' if errors.public_url }}"><label for="public_url">Внешний адрес панели</label>
+    <input id="public_url" name="public_url" value="{{ s.public_url }}" placeholder="https://panel.company.ru" spellcheck="false">{{ err('public_url') }}
+    <div class="hint">Адрес, по которому панель открывается из интернета. Нужен для входа Google и для бота. Как его получить — в ИНСТРУКЦИИ, раздел «Доступ снаружи».</div></div>
+  <div class="field {{ 'has-error' if errors.port }}"><label for="port">Порт панели</label>
+    <input id="port" name="port" value="{{ port }}" inputmode="numeric">{{ err('port') }}
+    <div class="hint">Обычно 8080. Меняйте, только если порт занят другой программой. Вступает в силу после перезапуска.</div></div>
+  <div class="field {{ 'has-error' if errors.https_port }}"><label for="https_port">Порт HTTPS</label>
+    <input id="https_port" name="https_port" value="{{ s.https_port }}" inputmode="numeric">{{ err('https_port') }}
+    <div class="hint">Работает, когда загружен сертификат (ниже). Обычно 443.</div></div>
+
+  <h2>Прокси для зарубежных сервисов</h2>
+  <div class="field {{ 'has-error' if errors.proxy_url }}"><label for="proxy_url">Адрес прокси</label>
+    <input id="proxy_url" name="proxy_url" type="password" autocomplete="new-password" spellcheck="false"
+      placeholder="{{ ('Сохранено: ' ~ proxy_masked ~ ' — оставьте пустым, чтобы не менять') if proxy_masked else 'http://логин:пароль@1.2.3.4:3128' }}">{{ err('proxy_url') }}
+    <div class="hint">Через прокси идут только Claude, Google и Telegram — они недоступны из России напрямую. 1С, маркетплейсы, Битрикс24 и MAX работают напрямую.</div>
+    {% if proxy_masked %}<label class="check"><input type="checkbox" name="proxy_clear" value="1"> Убрать прокси</label>{% endif %}</div>
+
+  <h2>Обслуживание</h2>
+  <div class="field {{ 'has-error' if errors.journal_days }}"><label for="journal_days">Хранить журнал, дней</label>
+    <input id="journal_days" name="journal_days" value="{{ s.journal_days }}" inputmode="numeric">{{ err('journal_days') }}</div>
+  <div class="field {{ 'has-error' if errors.auto_check_hours }}"><label for="auto_check_hours">Проверять подключения каждые, часов</label>
+    <input id="auto_check_hours" name="auto_check_hours" value="{{ s.auto_check_hours }}" inputmode="numeric">{{ err('auto_check_hours') }}
+    <div class="hint">Платформа сама проверяет подключения и пишет в журнал, если что-то сломалось. 0 — не проверять.</div></div>
+  <label class="check"><input type="checkbox" name="auto_backup" value="1" {{ 'checked' if s.auto_backup == '1' }}> Делать резервную копию автоматически раз в сутки</label>
+  <div class="field {{ 'has-error' if errors.backup_keep }}"><label for="backup_keep">Хранить копий</label>
+    <input id="backup_keep" name="backup_keep" value="{{ s.backup_keep }}" inputmode="numeric">{{ err('backup_keep') }}</div>
+  <div class="actions"><button class="primary" type="submit">Сохранить настройки</button></div>
+</form>
+
+<section class="card" id="https">
+  <h2>HTTPS (сертификат)</h2>
+  {% if tls_error %}<div class="flash flash-error">{{ tls_error }}</div>{% endif %}
+  {% if cert %}
+  <p>Загружен сертификат на <b>{{ cert.names | join(', ') }}</b>, действует до <b>{{ cert.not_after.strftime('%d.%m.%Y') }}</b> (осталось {{ cert.days_left }} дн.){% if cert.self_signed %}, самоподписанный — браузер будет предупреждать{% endif %}.</p>
+  <form method="post" action="/settings/tls/remove" data-confirm="Удалить сертификат? После перезапуска HTTPS перестанет работать.">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost small" type="submit">Удалить сертификат</button>
+  </form>
+  {% else %}
+  <p class="muted">Сертификат не загружен — панель работает только по http.</p>
+  {% endif %}
+  <form class="form" method="post" action="/settings/tls" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="field"><label for="pfx">Файл сертификата .pfx (или .p12)</label><input id="pfx" type="file" name="pfx" accept=".pfx,.p12"></div>
+    <details><summary>У меня файлы .crt и .key</summary>
+      <div class="field"><label for="crt">Сертификат (.crt, .pem)</label><input id="crt" type="file" name="crt" accept=".crt,.pem,.cer"></div>
+      <div class="field"><label for="key">Закрытый ключ (.key)</label><input id="key" type="file" name="key" accept=".key,.pem"></div>
+    </details>
+    <div class="field"><label for="tls_password">Пароль от файла</label><input id="tls_password" type="password" name="tls_password" autocomplete="new-password">
+      <div class="hint">Пароль, который задавали при выгрузке .pfx. Если пароля нет — оставьте пустым.</div></div>
+    <button class="primary" type="submit">Загрузить сертификат</button>
+  </form>
+</section>
+
+<section class="card" id="backup">
+  <h2>Резервные копии</h2>
+  <p class="muted">В копии — база, ключ шифрования и сертификат. Храните копии на другом диске или компьютере: при потере сервера без копии пропадут все настройки.</p>
+  <form method="post" action="/settings/backup" data-busy="Делаем копию…">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary" type="submit">Сделать копию сейчас</button>
+  </form>
+  {% if backups %}
+  <table class="table">
+    <thead><tr><th>Файл</th><th>Создан</th><th>Размер</th><th></th></tr></thead>
+    <tbody>{% for name, ts, size in backups %}
+      <tr><td>{{ name }}</td><td class="nowrap">{{ ts | dt }}</td><td>{{ '%.1f' % (size / 1024) }} КБ</td>
+        <td><a href="/settings/backup/{{ name }}">Скачать</a></td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p>Копий пока нет.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Перезапуск</h2>
+  <p class="muted">Нужен после смены порта или загрузки сертификата.</p>
+  <form method="post" action="/settings/restart" data-confirm="Перезапустить платформу? Панель будет недоступна 5–15 секунд.">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="ghost" type="submit" {{ '' if can_restart else 'disabled' }}>Перезапустить платформу</button>
+  </form>
+</section>
+{% endblock %}

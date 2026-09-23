@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ target.full_name if target else 'Новый сотрудник' }}{% endblock %}
+{% macro err(name) %}{% if errors.get(name) %}<div class="error-text">{{ errors[name] }}</div>{% endif %}{% endmacro %}
+{% block content %}
+<p class="crumbs"><a href="/employees">Сотрудники</a> → {{ target.full_name if target else 'новый' }}</p>
+<h1>{{ target.full_name if target else 'Новый сотрудник' }}</h1>
+<div class="two-col">
+<form class="card form" method="post" action="{{ '/employees/' ~ target.id if target else '/employees/new' }}" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% if form_error %}<div class="flash flash-error">{{ form_error }}</div>{% endif %}
+  <div class="field {{ 'has-error' if errors.full_name }}"><label for="full_name">Имя и фамилия <span class="req">*</span></label>
+    <input id="full_name" name="full_name" value="{{ v.full_name or '' }}" required>{{ err('full_name') }}</div>
+  <div class="field {{ 'has-error' if errors.role }}"><label for="role">Роль</label>
+    <select id="role" name="role">{% for key, title in ROLES.items() %}<option value="{{ key }}" {{ 'selected' if v.role == key }}>{{ title }}</option>{% endfor %}</select>
+    {{ err('role') }}<div class="hint">Менеджер не видит финансы. Подробно о ролях — справа.</div></div>
+  <fieldset>
+    <legend>Вход в панель (необязательно)</legend>
+    <div class="field {{ 'has-error' if errors.login }}"><label for="login">Логин</label>
+      <input id="login" name="login" value="{{ v.login or '' }}" autocomplete="off" spellcheck="false">{{ err('login') }}
+      <div class="hint">Одно слово без пробелов, например ivanov. Большинству сотрудников панель не нужна — они работают через бота.</div></div>
+    <div class="field {{ 'has-error' if errors.password }}"><label for="password">{{ 'Новый пароль' if target and target.password_hash else 'Пароль' }}</label>
+      <input id="password" name="password" type="password" autocomplete="new-password">{{ err('password') }}
+      <div class="hint">{{ 'Оставьте пустым, чтобы не менять.' if target and target.password_hash else 'Не короче 8 символов.' }}</div></div>
+    <label class="check"><input type="checkbox" name="must_change" value="1" checked> Попросить сменить пароль при первом входе</label>
+  </fieldset>
+  <fieldset>
+    <legend>Бот</legend>
+    <div class="field {{ 'has-error' if errors.max_id }}"><label for="max_id">ID в MAX</label>
+      <input id="max_id" name="max_id" value="{{ v.max_id or '' }}" inputmode="numeric">{{ err('max_id') }}</div>
+    <div class="field {{ 'has-error' if errors.telegram_id }}"><label for="telegram_id">ID в Telegram</label>
+      <input id="telegram_id" name="telegram_id" value="{{ v.telegram_id or '' }}" inputmode="numeric">{{ err('telegram_id') }}
+      <div class="hint">Числа, по которым бот узнаёт сотрудника. Когда бот заработает (этап 4), он сам подскажет сотруднику его ID.</div></div>
+  </fieldset>
+  <div class="field"><label for="phone">Телефон</label><input id="phone" name="phone" value="{{ v.phone or '' }}" inputmode="tel"></div>
+  <div class="field"><label for="note">Заметка</label><textarea id="note" name="note" rows="2">{{ v.note or '' }}</textarea></div>
+  <label class="check {{ 'has-error' if errors.active }}"><input type="checkbox" name="active" value="1" {{ 'checked' if v.active }}> Сотрудник активен</label>{{ err('active') }}
+  <div class="actions"><button class="primary" type="submit">Сохранить</button></div>
+</form>
+<aside>
+  <section class="card help">
+    <h2>Роли</h2>
+    <dl class="roles">{% for key, title in ROLES.items() %}<dt>{{ title }}</dt><dd>{{ descriptions[key] }}</dd>{% endfor %}</dl>
+  </section>
+  {% if target and target.id != user.id %}
+  <section class="card danger-zone">
+    <form method="post" action="/employees/{{ target.id }}/delete" data-confirm="Удалить сотрудника «{{ target.full_name }}»? Если человек просто уволился — лучше снять галочку «Сотрудник активен».">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="danger" type="submit">Удалить сотрудника</button>
+    </form>
+  </section>
+  {% endif %}
+</aside>
+</div>
+{% endblock %}

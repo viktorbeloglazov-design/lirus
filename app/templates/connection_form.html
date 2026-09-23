@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, status_badge with context %}
+{% block title %}{{ conn.name if conn else ctype.title }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/connections">Подключения</a> → {{ ctype.title }}</p>
+<div class="head-row">
+  <h1>{{ conn.name if conn else 'Новое подключение: ' ~ ctype.title }}</h1>
+  {% if conn and conn.enabled %}{{ status_badge(conn.status) }}{% elif conn %}<span class="muted">выключено</span>{% endif %}
+</div>
+<p class="muted">{{ ctype.description }}</p>
+
+<div class="two-col">
+<div>
+  {% if conn %}
+  <section class="card status-card status-{{ conn.status }}">
+    <div class="head-row">
+      <h2>Связь</h2>
+      <form method="post" action="/connections/{{ conn.id }}/check" data-busy="Проверяем…">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="primary" type="submit">Проверить связь</button>
+      </form>
+    </div>
+    {% if not conn.enabled %}
+    <p class="muted">Подключение выключено — платформа его не использует.</p>
+    {% elif conn.status == 'new' %}
+    <p class="muted">Ещё не проверялось. Нажмите «Проверить связь».</p>
+    {% else %}
+    <p>{{ status_badge(conn.status) }} <span class="muted">{{ conn.checked_at | dt }}</span></p>
+    <p>{{ conn.status_message }}</p>
+    {% if conn.status_action and conn.status != 'ok' %}<div class="todo"><b>Что делать:</b> {{ conn.status_action }}</div>{% endif %}
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if ctype.oauth %}
+  <section class="card">
+    <h2>Аккаунт Google</h2>
+    {% if conn and conn.config.email %}<p>Подключён: <b>{{ conn.config.email }}</b></p>{% endif %}
+    {% if oauth_block %}
+      <div class="flash flash-warn">{{ oauth_block }} <a href="/connections/new?type=google_app">Заполнить ключи →</a></div>
+    {% else %}
+      <form method="post" action="/oauth/google/start">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {% if conn %}<input type="hidden" name="conn_id" value="{{ conn.id }}">{% endif %}
+        <button type="submit" class="primary">{{ 'Переподключить аккаунт Google' if conn else 'Подключить аккаунт Google' }}</button>
+      </form>
+      <p class="hint">Откроется страница Google: выберите аккаунт и отметьте <b>все</b> галочки доступа (почта, Диск). Пароль от почты в панель не передаётся.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if conn or not ctype.oauth %}
+  <form class="card form" method="post" action="{{ '/connections/' ~ conn.id if conn else '/connections/new?type=' ~ ctype.key }}" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h2>Настройки</h2>
+    {% if form_error %}<div class="flash flash-error">{{ form_error }}</div>{% endif %}
+    {% if not ctype.singleton %}
+    <div class="field">
+      <label for="f_name">{{ ctype.name_label }}</label>
+      <input id="f_name" name="name" value="{{ name }}" placeholder="{{ ctype.name_placeholder }}">
+      <div class="hint">{{ ctype.name_hint or 'Как это подключение будет называться в списках. Например, по названию кабинета или юрлица.' }}</div>
+    </div>
+    {% else %}
+    <input type="hidden" name="name" value="{{ name or ctype.title }}">
+    {% endif %}
+    {% for fv in fields %}{{ field(fv) }}{% endfor %}
+    <div class="actions">
+      <button class="primary" type="submit" name="action" value="save_check" data-busy-button="Сохраняем и проверяем…">Сохранить и проверить</button>
+      <button class="ghost" type="submit" name="action" value="save">Сохранить</button>
+    </div>
+    {% if conn and fields|selectattr('f.kind', 'equalto', 'secret')|list %}
+    <p class="hint">Пароли и токены хранятся зашифрованными и показываются маской. Пустое поле при сохранении — значит «оставить как было».</p>
+    {% endif %}
+  </form>
+  {% endif %}
+
+  {% if conn %}
+  <section class="card danger-zone">
+    <form method="post" action="/connections/{{ conn.id }}/toggle" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="ghost" type="submit">{{ 'Выключить' if conn.enabled else 'Включить' }}</button>
+    </form>
+    <form method="post" action="/connections/{{ conn.id }}/delete" class="inline" data-confirm="Удалить подключение «{{ conn.name }}»? Сохранённые ключи будут стёрты.">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="danger" type="submit">Удалить</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
+
+<aside>
+  {% if ctype.key == 'google_app' %}
+  <section class="card">
+    <h2>Адреса для Google</h2>
+    <p class="hint">Добавьте их в Google Cloud → OAuth-клиент → «Authorized redirect URIs». Кнопка копирует адрес.</p>
+    <ul class="copy-list">
+      {% for uri in redirect_uris %}<li><code>{{ uri }}</code> <button type="button" class="ghost small" data-copy="{{ uri }}">Копировать</button></li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  <section class="card help">
+    <h2>{{ ctype.help_title }}</h2>
+    <ol>{% for step in ctype.help_steps %}<li>{{ step }}</li>{% endfor %}</ol>
+  </section>
+</aside>
+</div>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge with context %}
+{% block title %}Обзор{% endblock %}
+{% block content %}
+<h1>Обзор</h1>
+<p class="muted">Здравствуйте, {{ user.full_name or user.login }}. Роль: {{ ROLES[user.role] }}.</p>
+
+{% if counts is defined %}
+<div class="tiles">
+  <a class="tile" href="/connections"><span class="tile-num ok">{{ counts.ok }}</span><span>подключений работают</span></a>
+  <a class="tile" href="/connections"><span class="tile-num warn">{{ counts.warn }}</span><span>требуют внимания</span></a>
+  <a class="tile" href="/connections"><span class="tile-num error">{{ counts.error }}</span><span>с ошибкой</span></a>
+  <a class="tile" href="/testing"><span class="tile-num">{% if last_run %}{{ last_run.ts | ago }}{% else %}—{% endif %}</span><span>последняя полная проверка</span></a>
+</div>
+{% endif %}
+
+{% if finance is defined %}
+<section class="card" id="finance">
+  <h2>Расходы на Claude в этом месяце</h2>
+  {% if finance.connected %}
+  <progress class="meter" max="100" value="{{ finance.percent }}"></progress>
+  <p><b>${{ '%.2f' % finance.spent }}</b> из ${{ '%.0f' % finance.limit }} {% if finance.limit %}({{ finance.percent }}%){% endif %}.
+  <span class="muted">Учёт расходов заработает вместе с ядром (этап 3).</span></p>
+  {% else %}
+  <p class="muted">Ядро Claude ещё не подключено.</p>
+  {% endif %}
+  <p class="muted">Подключено кабинетов маркетплейсов: {{ finance.cabinets }}.</p>
+</section>
+{% endif %}
+
+{% if checklist is defined %}
+<section class="card">
+  <h2>Первоначальная настройка</h2>
+  <ol class="checklist">
+    {% for title, done, href in checklist %}
+    <li class="{{ 'done' if done }}"><a href="{{ href }}">{{ title }}</a>{% if done %}<span class="done-mark">готово</span>{% endif %}</li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+{% if conns is defined and conns %}
+<section class="card">
+  <h2>Подключения</h2>
+  <table class="table">
+    <thead><tr><th>Подключение</th><th>Состояние</th><th>Проверено</th></tr></thead>
+    <tbody>
+    {% for c, t in conns %}
+    <tr class="{{ '' if c.enabled else 'off' }}">
+      <td><a href="/connections/{{ c.id }}">{{ c.name }}</a>{% if t and t.title != c.name %}<small class="muted block">{{ t.title }}</small>{% endif %}</td>
+      <td>{% if c.enabled %}{{ status_badge(c.status) }}{% else %}<span class="muted">выключено</span>{% endif %}
+        {% if c.status in ('warn','error') and c.status_message %}<small class="block">{{ c.status_message }}</small>{% endif %}</td>
+      <td class="nowrap">{{ c.checked_at | ago }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if problems is defined and problems %}
+<section class="card">
+  <h2>Последние ошибки</h2>
+  <ul class="plain">
+    {% for e in problems %}<li><span class="muted nowrap">{{ e.ts | dt }}</span> — {{ e.message }}</li>{% endfor %}
+  </ul>
+  <p><a href="/journal?level=error">Весь журнал ошибок →</a></p>
+</section>
+{% endif %}
+
+{% if counts is not defined %}
+<section class="card">
+  <h2>Что доступно вам</h2>
+  <p>Основная работа идёт через бота в MAX или Telegram — задайте ему вопрос обычными словами.</p>
+  <p class="muted">Данные, которые бот будет показывать для вашей роли:
+    {% set names = {'sales':'продажи','stock':'остатки','clients':'клиенты','tasks':'задачи','documents':'документы','mail':'почта','finance':'финансы'} %}
+    {% for s in scopes %}{{ names.get(s, s) }}{{ ', ' if not loop.last }}{% endfor %}.</p>
+</section>
+{% endif %}
+{% endblock %}

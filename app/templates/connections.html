@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge with context %}
+{% block title %}Подключения{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Подключения</h1>
+  <a class="button ghost" href="/testing">Проверить всё сразу</a>
+</div>
+<p class="muted">Здесь платформа получает доступ к системам компании. Для каждого подключения есть подсказки, где взять ключи.</p>
+
+{% for cat, types in groups %}
+<section class="group">
+  <h2>{{ cat }}</h2>
+  <div class="cards">
+    {% for t, items in types %}
+    <div class="card type-card">
+      <div class="type-head">
+        <div>
+          <h3>{{ t.title }}</h3>
+          <p class="muted">{{ t.description }}</p>
+        </div>
+        {% if not (t.singleton and items) %}
+        <a class="button {{ 'primary' if not items else 'ghost' }} small" href="/connections/new?type={{ t.key }}">{{ 'Подключить' if not items else 'Добавить ещё' }}</a>
+        {% endif %}
+      </div>
+      {% if items %}
+      <ul class="conn-list">
+        {% for c in items %}
+        <li class="{{ '' if c.enabled else 'off' }}">
+          <a href="/connections/{{ c.id }}">{{ c.name }}</a>
+          {% if c.enabled %}{{ status_badge(c.status) }}{% else %}<span class="muted">выключено</span>{% endif %}
+          {% if c.status in ('warn', 'error') and c.enabled %}
+          <div class="conn-msg">{{ c.status_message }}{% if c.status_action %}<div class="todo"><b>Что делать:</b> {{ c.status_action }}</div>{% endif %}</div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if t.singleton %}<p class="hint">Может быть только одно такое подключение.</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

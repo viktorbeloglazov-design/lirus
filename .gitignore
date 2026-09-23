@@ -1,0 +1,11 @@
+data/
+logs/
+backups/
+venv/
+.env
+__pycache__/
+*.pyc
+*.zip
+dist/
+tests/_certs/
+tests/_last_report.txt

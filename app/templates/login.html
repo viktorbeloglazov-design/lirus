@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Вход{% endblock %}
+{% block solo %}
+<form class="card narrow login" method="post" action="/login">
+  <div class="login-head">
+    <img src="/static/favicon.svg" alt="" width="40" height="40">
+    <div><h1>Вход в панель</h1><p class="muted">{{ company or APP_NAME }}</p></div>
+  </div>
+  {% if first_run %}
+  <div class="flash flash-warn">Первый запуск: войдите с логином <b>admin</b> и паролем <b>admin</b>. Сразу после входа панель попросит придумать новый пароль.</div>
+  {% endif %}
+  {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <div class="field"><label for="login">Логин</label>
+    <input id="login" name="login" value="{{ login_value }}" autocomplete="username" autofocus required></div>
+  <div class="field"><label for="password">Пароль</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required></div>
+  <button type="submit" class="primary wide">Войти</button>
+  <p class="hint center">Забыли пароль администратора? На сервере запустите файл<br><b>сбросить-пароль-администратора.bat</b>.</p>
+</form>
+{% endblock %}
