@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ wf.name }}{% endblock %}
+{% block body_class %}editor-page{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/editor.css?v={{ APP_VERSION }}">
+<div id="wf-editor" class="wf-editor"
+     data-id="{{ wf.id }}" data-csrf="{{ csrf }}" data-execution="{{ execution_id }}"
+     data-public-url="{{ public_url }}" data-local-url="{{ request.base_url }}">
+  <div class="wf-top">
+    <a class="wf-back" href="/workflows" title="К списку сценариев">←</a>
+    <input class="wf-name" id="wf-name" value="{{ wf.name }}" aria-label="Название сценария" spellcheck="false">
+    <span class="wf-saved" id="wf-saved">Сохранено</span>
+    <div class="wf-top-actions">
+      <label class="switch-label" title="Включённый сценарий запускается сам: по расписанию или по вебхуку">
+        <button type="button" class="switch {{ 'on' if wf.active }}" id="wf-active"><i></i><span>{{ 'вкл' if wf.active else 'выкл' }}</span></button>
+      </label>
+      <button type="button" class="ghost" id="wf-settings-btn">Настройки</button>
+      <a class="button ghost" href="/executions?workflow={{ wf.id }}">История</a>
+      <button type="button" class="ghost" id="wf-save">Сохранить</button>
+      <button type="button" class="primary" id="wf-run">▶ Выполнить</button>
+    </div>
+  </div>
+  <div class="wf-banner" id="wf-banner" hidden></div>
+  <div class="wf-body">
+    <div class="wf-canvas-wrap" id="wf-canvas-wrap">
+      <svg id="wf-canvas" class="wf-canvas" tabindex="0" aria-label="Холст сценария">
+        <defs>
+          <pattern id="wf-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" class="wf-grid-dot"></circle></pattern>
+          <marker id="wf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="wf-arrow"></path></marker>
+        </defs>
+        <rect id="wf-bg" class="wf-bg" width="100%" height="100%" fill="url(#wf-grid)"></rect>
+        <g id="wf-viewport"><g id="wf-edges"></g><path id="wf-temp-edge" class="wf-edge temp" d=""></path><g id="wf-nodes"></g></g>
+        <rect id="wf-select-box" class="wf-select-box" x="0" y="0" width="0" height="0" hidden></rect>
+      </svg>
+      <div class="wf-canvas-tools">
+        <button type="button" class="ghost small" id="wf-add" title="Добавить узел (Tab)">＋ Узел</button>
+        <button type="button" class="ghost small" id="wf-zoom-in" title="Приблизить">＋</button>
+        <button type="button" class="ghost small" id="wf-zoom-out" title="Отдалить">−</button>
+        <button type="button" class="ghost small" id="wf-fit" title="Показать всё (1)">⤢</button>
+        <button type="button" class="ghost small" id="wf-undo" title="Отменить (Ctrl+Z)">↶</button>
+        <button type="button" class="ghost small" id="wf-redo" title="Повторить (Ctrl+Y)">↷</button>
+      </div>
+      <div class="wf-status" id="wf-status"></div>
+      <div class="wf-hint" id="wf-hint">Перетаскивайте узлы мышью. Связь — потяните от кружка справа у узла к кружку слева у другого. Delete — удалить выделенное, Ctrl+S — сохранить, Ctrl+Enter — выполнить.</div>
+    </div>
+    <aside class="wf-panel" id="wf-panel" hidden>
+      <div class="wf-panel-head">
+        <input class="wf-node-name" id="wf-node-name" spellcheck="false" aria-label="Название узла">
+        <button type="button" class="ghost small" id="wf-panel-close" title="Закрыть (Esc)">✕</button>
+      </div>
+      <div class="wf-tabs" role="tablist">
+        <button type="button" class="wf-tab active" data-tab="params">Параметры</button>
+        <button type="button" class="wf-tab" data-tab="data">Данные</button>
+        <button type="button" class="wf-tab" data-tab="settings">Настройки узла</button>
+      </div>
+      <div class="wf-panel-body" id="wf-panel-body"></div>
+      <div class="wf-panel-foot">
+        <button type="button" class="ghost small" id="wf-run-to" title="Выполнить сценарий до этого узла включительно">▶ Выполнить до этого узла</button>
+      </div>
+    </aside>
+  </div>
+  <div class="wf-modal" id="wf-picker" hidden>
+    <div class="wf-modal-box">
+      <div class="wf-panel-head"><input id="wf-picker-search" placeholder="Найти узел: telegram, условие, 1С…" spellcheck="false"><button type="button" class="ghost small" data-close>✕</button></div>
+      <div class="wf-picker-list" id="wf-picker-list"></div>
+    </div>
+  </div>
+  <div class="wf-modal" id="wf-settings" hidden>
+    <div class="wf-modal-box narrow">
+      <div class="wf-panel-head"><b>Настройки сценария</b><button type="button" class="ghost small" data-close>✕</button></div>
+      <div class="wf-panel-body" id="wf-settings-body"></div>
+    </div>
+  </div>
+</div>
+<script src="/static/editor.js?v={{ APP_VERSION }}" defer></script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Сценарии{% endblock %}
+{% block content %}
+<div class="head-row">
+  <h1>Сценарии</h1>
+  <div class="actions">
+    <a class="button ghost" href="/workflows/variables">Переменные</a>
+    <a class="button ghost" href="/executions">История выполнений{% if running %} ({{ running }} сейчас){% endif %}</a>
+  </div>
+</div>
+<p class="muted">Автоматизации как в n8n: «когда что-то произошло → сделать то-то». Собираются из узлов мышью в редакторе.</p>
+
+<div class="two-col">
+<section class="card">
+  <h2>Мои сценарии</h2>
+  {% if workflows %}
+  <table class="table">
+    <thead><tr><th>Сценарий</th><th>Запуск</th><th>За 7 дней</th><th>Включён</th><th></th></tr></thead>
+    <tbody>
+    {% for wf in workflows %}
+    <tr>
+      <td><a href="/workflows/{{ wf.id }}"><b>{{ wf.name }}</b></a>
+        <small class="muted block">изменён {{ wf.updated_at | dt }}{% if wf.updated_by %} · {{ wf.updated_by }}{% endif %} · узлов: {{ wf.nodes | length }}</small></td>
+      <td><small>{{ wf.triggers | join(', ') or '—' }}</small></td>
+      <td class="nowrap"><a href="/executions?workflow={{ wf.id }}">{{ wf.stats.total }}</a>{% if wf.stats.errors %} · <a class="err-link" href="/executions?workflow={{ wf.id }}&status=error">ошибок {{ wf.stats.errors }}</a>{% endif %}
+        {% if wf.stats.last %}<small class="muted block">{{ wf.stats.last | ago }}</small>{% endif %}</td>
+      <td>
+        <form method="post" action="/workflows/{{ wf.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="switch {{ 'on' if wf.active }}" title="{{ 'Выключить' if wf.active else 'Включить' }}"><i></i><span>{{ 'вкл' if wf.active else 'выкл' }}</span></button>
+        </form>
+      </td>
+      <td class="nowrap row-actions">
+        <form method="post" action="/workflows/{{ wf.id }}/duplicate" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost small" type="submit">Копия</button></form>
+        <a class="button ghost small" href="/workflows/{{ wf.id }}/export">Скачать</a>
+        <form method="post" action="/workflows/{{ wf.id }}/delete" class="inline" data-confirm="Удалить сценарий «{{ wf.name }}»? История выполнений останется."><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger small" type="submit">Удалить</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Сценариев пока нет. Создайте пустой или начните с шаблона — например, «Учебный» работает без подключений.</p>
+  {% endif %}
+</section>
+
+<aside>
+  <section class="card">
+    <h2>Новый сценарий</h2>
+    <form method="post" action="/workflows/new" class="form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label for="wf_name">Название</label><input id="wf_name" name="name" placeholder="Например: Остатки WB утром"></div>
+      <button class="primary" type="submit">Создать</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Импорт</h2>
+    <form method="post" action="/workflows/import" enctype="multipart/form-data" class="form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label for="wf_file">Файл сценария (.json)</label><input id="wf_file" type="file" name="file" accept=".json,application/json">
+        <div class="hint">Подходят файлы, скачанные из этой панели, и сценарии n8n (в n8n: меню «…» → «Download»).</div></div>
+      <button class="ghost" type="submit">Импортировать</button>
+    </form>
+  </section>
+</aside>
+</div>
+
+<section class="group">
+  <h2>Шаблоны</h2>
+  <div class="cards">
+    {% for key, t in templates.items() %}
+    <div class="card type-card">
+      <div class="type-head"><div><h3>{{ t.title }}</h3><p class="muted">{{ t.description }}</p></div></div>
+      <form method="post" action="/workflows/new"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="template" value="{{ key }}">
+        <button class="ghost small" type="submit">Создать из шаблона</button></form>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

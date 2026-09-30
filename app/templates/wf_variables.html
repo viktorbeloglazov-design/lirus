@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Переменные сценариев{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/workflows">Сценарии</a> → переменные</p>
+<h1>Переменные</h1>
+<p class="muted">Общие значения для всех сценариев: ID чата менеджера, адреса, пороги. В узлах пишите <code>{{ '{{' }} $vars.ИМЯ {{ '}}' }}</code> — и при смене значения не придётся править каждый сценарий.</p>
+<form class="card form" method="post" action="/workflows/variables">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <table class="table vars-table">
+    <thead><tr><th>Имя</th><th>Значение</th></tr></thead>
+    <tbody>
+      {% for k, v in variables.items() %}<tr><td><input name="key" value="{{ k }}" spellcheck="false"></td><td><input name="value" value="{{ v }}"></td></tr>{% endfor %}
+      {% for i in range(3) %}<tr><td><input name="key" placeholder="MANAGER_CHAT_ID" spellcheck="false"></td><td><input name="value" placeholder="123456789"></td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">Чтобы удалить переменную — очистите её имя. Пустые строки не сохраняются; после сохранения появятся новые пустые.</p>
+  <button class="primary" type="submit">Сохранить</button>
+</form>
+{% endblock %}

@@ -24,6 +24,7 @@ SETTING_DEFAULTS: dict[str, str] = {
     "auto_check_hours": "6",
     "https_port": "443",
     "instance_id": "",
+    "executions_days": "30",
 }
 SECRET_SETTINGS = {"proxy_url"}
 
@@ -75,6 +76,7 @@ SECTIONS = {
     "testing": "Тестирование",
     "settings": "Настройки",
     "backup": "Резервные копии",
+    "workflows": "Сценарии",
     "system": "Система",
 }
 
@@ -287,3 +289,11 @@ def last_test_run() -> dict | None:
 def month_usage(month: str) -> float:
     row = db.query_one("SELECT cost_usd FROM usage WHERE month = ?", (month,))
     return float(row["cost_usd"]) if row else 0.0
+
+
+def add_usage(month: str, cost: float, input_tokens: int, output_tokens: int) -> None:
+    db.execute(
+        "INSERT INTO usage(month, cost_usd, input_tokens, output_tokens) VALUES(?,?,?,?) "
+        "ON CONFLICT(month) DO UPDATE SET cost_usd = cost_usd + excluded.cost_usd, "
+        "input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens",
+        (month, cost, input_tokens, output_tokens))

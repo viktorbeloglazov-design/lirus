@@ -29,6 +29,7 @@ from .auth import ROLES, can, page
 from .connectors import BY_KEY, CATEGORY_ORDER, TYPES, context_for, get_type, run_check, validate_form
 from .connectors import google as g
 from .connectors.base import ERROR, OK, STATUS_TITLES, WARN, ConnectorError, normalize_url
+from .workflows import views as wf_views
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,8 @@ templates.env.globals.update(STATUS_TITLES=STATUS_TITLES, ROLES=ROLES, APP_NAME=
 NAV = [
     ("overview", "/", "Обзор"),
     ("connections", "/connections", "Подключения"),
+    ("workflows", "/workflows", "Сценарии"),
+    ("workflows", "/executions", "Выполнения"),
     ("employees", "/employees", "Сотрудники"),
     ("testing", "/testing", "Тестирование"),
     ("journal", "/journal", "Журнал"),
@@ -746,10 +749,11 @@ async def settings_page(request: Request) -> Response:
         if "proxy_url" not in errors and not urlsplit(proxy).hostname:
             errors["proxy_url"] = "Адрес прокси выглядит так: http://логин:пароль@1.2.3.4:3128"
     for key, label, lo, hi in (("journal_days", "Хранить журнал, дней", 7, 3650),
+                               ("executions_days", "Хранить историю выполнений, дней", 1, 365),
                                ("backup_keep", "Хранить копий", 1, 365),
                                ("auto_check_hours", "Проверять подключения каждые, часов", 0, 168),
                                ("https_port", "Порт HTTPS", 1, 65535)):
-        n = _int_in(form_str(request, key), label, lo, hi, errors, key)
+        n = _int_in(form_str(request, key) or store.get_setting(key), label, lo, hi, errors, key)
         if n is not None:
             new[key] = str(n)
     new["auto_backup"] = "1" if form.get("auto_backup") in ("1", "on") else "0"
@@ -903,6 +907,9 @@ async def _periodic() -> None:
             now = time.time()
             if now - last_cleanup > 86400:
                 removed = store.cleanup_events(store.get_int_setting("journal_days", 90))
+                from .workflows import storage as wf_storage
+
+                wf_storage.cleanup_executions(store.get_int_setting("executions_days", 30))
                 db.execute("DELETE FROM oauth_states WHERE created_at < ?", (now - 3600,))
                 if removed:
                     store.log_event("info", "system", f"Автоочистка журнала: удалено старых записей — {removed}")
@@ -936,6 +943,9 @@ def startup() -> None:
         store.log_event("error", "system", "Ключ шифрования data\\secret.key отсутствовал — создан новый. "
                         "Сохранённые пароли подключений больше не читаются: восстановите старый ключ из "
                         "резервной копии или введите пароли заново.")
+    from .workflows import storage as wf_storage
+
+    wf_storage.init()
     if not config.CONTROL_TOKEN_PATH.exists():
         config.CONTROL_TOKEN_PATH.write_text(pysecrets.token_urlsafe(32))
 
@@ -944,13 +954,17 @@ def startup() -> None:
 async def lifespan(app):
     startup()
     store.log_event("info", "system", f"Платформа запущена, версия {config.APP_VERSION}")
-    task = asyncio.create_task(_periodic())
+    from .workflows import triggers as wf_triggers
+
+    tasks = [asyncio.create_task(_periodic()), asyncio.create_task(wf_triggers.scheduler_loop())]
     try:
         yield
     finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 def create_app() -> Starlette:
@@ -983,6 +997,7 @@ def create_app() -> Starlette:
         Route("/settings/backup", settings_backup, methods=["POST"]),
         Route("/settings/backup/{name}", settings_backup_download),
         Route("/settings/restart", settings_restart, methods=["POST"]),
+        *wf_views.routes(),
         Mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static"),
     ]
     return Starlette(

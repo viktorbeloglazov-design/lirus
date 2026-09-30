@@ -32,6 +32,8 @@
   <h2>Обслуживание</h2>
   <div class="field {{ 'has-error' if errors.journal_days }}"><label for="journal_days">Хранить журнал, дней</label>
     <input id="journal_days" name="journal_days" value="{{ s.journal_days }}" inputmode="numeric">{{ err('journal_days') }}</div>
+  <div class="field {{ 'has-error' if errors.executions_days }}"><label for="executions_days">Хранить историю выполнений сценариев, дней</label>
+    <input id="executions_days" name="executions_days" value="{{ s.executions_days }}" inputmode="numeric">{{ err('executions_days') }}</div>
   <div class="field {{ 'has-error' if errors.auto_check_hours }}"><label for="auto_check_hours">Проверять подключения каждые, часов</label>
     <input id="auto_check_hours" name="auto_check_hours" value="{{ s.auto_check_hours }}" inputmode="numeric">{{ err('auto_check_hours') }}
     <div class="hint">Платформа сама проверяет подключения и пишет в журнал, если что-то сломалось. 0 — не проверять.</div></div>

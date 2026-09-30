@@ -215,6 +215,18 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent); fon
 .error-code { font-size: 48px; font-weight: 800; color: var(--muted); line-height: 1; margin-bottom: 8px; }
 .empty p { margin: 0; color: var(--muted); }
 
+/* ----- переключатель вкл/выкл ----- */
+.switch { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 999px; font-size: 13px; }
+.switch i { width: 30px; height: 18px; border-radius: 999px; background: var(--border); position: relative; transition: background .15s; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+.switch.on i { background: var(--ok); }
+.switch.on i::after { left: 14px; }
+.switch.on span { color: var(--ok); font-weight: 600; }
+.row-actions { display: flex; gap: 6px; }
+.err-link { color: var(--error); }
+.vars-table input { padding: 6px 8px; }
+button.link { cursor: pointer; }
+
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; flex-direction: column; }

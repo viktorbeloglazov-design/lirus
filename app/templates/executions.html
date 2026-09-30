@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}История выполнений{% endblock %}
+{% block content %}
+<h1>История выполнений</h1>
+<p class="muted">Каждый запуск сценария с данными по каждому узлу. Нажмите на строку, чтобы открыть выполнение в редакторе.</p>
+<form class="filters card" method="get" action="/executions">
+  <label>Сценарий
+    <select name="workflow"><option value="">Все</option>{% for w in workflows %}<option value="{{ w.id }}" {{ 'selected' if wf_id == w.id }}>{{ w.name }}</option>{% endfor %}</select></label>
+  <label>Результат
+    <select name="status"><option value="">Все</option>
+      {% for k, t in [('success','успешно'),('error','ошибка'),('running','выполняется'),('cancelled','остановлено')] %}<option value="{{ k }}" {{ 'selected' if status == k }}>{{ t }}</option>{% endfor %}</select></label>
+  <button class="primary" type="submit">Показать</button>
+  {% if wf_id or status %}<a class="button ghost" href="/executions">Сбросить</a>{% endif %}
+</form>
+<section class="card">
+  <p class="muted">Найдено: {{ total }}</p>
+  {% if rows %}
+  <table class="table">
+    <thead><tr><th>№</th><th>Сценарий</th><th>Как запущен</th><th>Начало</th><th>Длительность</th><th>Результат</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/workflows/{{ r.workflow_id }}?execution={{ r.id }}">{{ r.id }}</a></td>
+      <td>{{ r.workflow_name }}</td>
+      <td>{{ MODES.get(r.mode, r.mode) }}</td>
+      <td class="nowrap">{{ r.started_at | dt(true) }}</td>
+      <td class="nowrap">{% if r.finished_at %}{{ '%.1f' % (r.finished_at - r.started_at) }} с{% else %}—{% endif %}</td>
+      <td>{% if r.status == 'success' %}<span class="badge badge-ok"><i></i>Успешно</span>
+          {% elif r.status == 'error' %}<span class="badge badge-error"><i></i>Ошибка</span><small class="block">{% if r.error_node %}{{ r.error_node }}: {% endif %}{{ r.error }}</small>
+          {% elif r.status == 'running' %}<span class="badge badge-warn"><i></i>Выполняется</span>
+          {% else %}<span class="badge"><i></i>Остановлено</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>Выполнений нет.</p>{% endif %}
+  {% if pages > 1 %}
+  <nav class="pager">
+    {% if page_no > 1 %}<a class="button ghost small" href="?workflow={{ wf_id or '' }}&status={{ status }}&page={{ page_no - 1 }}">← Новее</a>{% endif %}
+    <span class="muted">Страница {{ page_no }} из {{ pages }}</span>
+    {% if page_no < pages %}<a class="button ghost small" href="?workflow={{ wf_id or '' }}&status={{ status }}&page={{ page_no + 1 }}">Старее →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

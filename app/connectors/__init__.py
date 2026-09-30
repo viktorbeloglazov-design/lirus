@@ -1,7 +1,7 @@
 """Реестр типов подключений."""
 from __future__ import annotations
 
-from . import bitrix, bots, claude, google, marketplaces, onec
+from . import bitrix, bots, claude, google, marketplaces, onec, smtp
 from .base import CheckContext, CheckResult, ConnectorType, run_check, validate_form  # noqa: F401
 
 
@@ -18,6 +18,7 @@ TYPES: list[ConnectorType] = [
     bitrix.CONNECTOR,
     google.APP,
     google.account_type(_google_app_values),
+    smtp.CONNECTOR,
     marketplaces.WILDBERRIES,
     marketplaces.OZON,
     marketplaces.YANDEX_MARKET,
