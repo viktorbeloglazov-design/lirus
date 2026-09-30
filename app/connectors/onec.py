@@ -194,3 +194,114 @@ CONNECTOR = ConnectorType(
         "дайте доступ пользователю и отметьте нужные объекты.",
     ],
 )
+
+
+# ------------------------------------------------------------ запросы OData
+# Общие функции для обозревателя 1С в панели и для узла «1С» в сценариях.
+
+from urllib.parse import quote as _quote  # noqa: E402
+
+# Скобки, запятые и кавычки — часть синтаксиса OData: 1С ждёт их как есть.
+ODATA_SAFE = "/()',=$:"
+
+
+def odata_headers(values: dict) -> dict:
+    return {"Authorization": basic_auth(values.get("username", ""), values.get("password", "")),
+            "Accept": "application/json"}
+
+
+def odata_url(values: dict, entity: str = "") -> str:
+    base = (values.get("base_url") or "").rstrip("/")
+    return base + "/odata/standard.odata/" + _quote(entity.strip().lstrip("/"), safe=ODATA_SAFE)
+
+
+def odata_error_text(resp) -> str:
+    """Текст ошибки, который вернула сама 1С (в odata.error), если он есть."""
+    data = json_or_none(resp)
+    if isinstance(data, dict):
+        err = data.get("odata.error") or data.get("error") or {}
+        msg = err.get("message") if isinstance(err, dict) else None
+        if isinstance(msg, dict):
+            msg = msg.get("value")
+        if msg:
+            return str(msg).strip()
+    return ""
+
+
+def odata_raise(resp, entity: str = "") -> None:
+    """Понятная ошибка по ответу 1С. Ничего не делает, если ответ успешный."""
+    code = resp.status_code
+    if code < 400:
+        return
+    said = odata_error_text(resp)
+    tail = f" 1С пишет: «{said}»" if said else ""
+    if code == 401:
+        raise ConnectorError("1С не пустила: неверное имя пользователя или пароль." + tail, ACTION_AUTH, details_for(resp))
+    if code == 403:
+        raise ConnectorError(f"У пользователя 1С нет прав на объект {entity or ''}.".replace(" .", ".") + tail,
+                             ACTION_ODATA_RIGHTS, details_for(resp))
+    if code == 404:
+        raise ConnectorError(
+            f"1С не нашла объект «{entity}»." + tail if entity else "1С не нашла такой адрес." + tail,
+            "Проверьте имя объекта: регистр букв важен, объект должен быть отмечен в «Настройке стандартного "
+            "интерфейса OData». Список доступных объектов — в «Обозревателе 1С» на странице подключения.",
+            details_for(resp))
+    if code == 400:
+        raise ConnectorError("1С не поняла запрос." + tail,
+                             "Проверьте отбор ($filter) и список полей ($select). Даты в отборе пишутся так: "
+                             "Date gt datetime'2026-01-01T00:00:00', строки — в одинарных кавычках.",
+                             details_for(resp))
+    if code >= 500:
+        err = _explain_server_error(resp)
+        raise ConnectorError(err.message + tail, err.action, err.details)
+    raise ConnectorError(f"1С ответила неожиданно (код {code})." + tail, "", details_for(resp))
+
+
+async def odata_entities(values: dict, ctx: CheckContext) -> list[str]:
+    """Список объектов, которые 1С отдаёт через OData."""
+    resp = await http_request("GET", odata_url(values) + "?$format=json", ctx, service=SERVICE,
+                              headers=odata_headers(values), verify=bool(values.get("verify_ssl", True)), timeout=60)
+    odata_raise(resp)
+    data = json_or_none(resp)
+    if not isinstance(data, dict) or "value" not in data:
+        raise ConnectorError("По этому адресу отвечает не OData 1С.",
+                             "Проверьте адрес базы в подключении.", details_for(resp))
+    names = [str(x.get("name") or x.get("url") or "") for x in data.get("value", []) if isinstance(x, dict)]
+    return sorted(n for n in names if n)
+
+
+async def odata_query(values: dict, ctx: CheckContext, entity: str, params: dict | None = None,
+                      top: int = 100, all_pages: bool = False, page_size: int = 500,
+                      max_records: int = 100000) -> list[dict]:
+    """Записи объекта 1С. С all_pages забирает всё порциями (1С не любит огромные ответы)."""
+    params = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+    params["$format"] = "json"
+    headers = odata_headers(values)
+    verify = bool(values.get("verify_ssl", True))
+    url = odata_url(values, entity)
+    records: list[dict] = []
+    skip = 0
+    while True:
+        batch = page_size if all_pages else top
+        page = dict(params, **{"$top": str(batch)})
+        if skip:
+            page["$skip"] = str(skip)
+        resp = await http_request("GET", url, ctx, service=SERVICE, headers=headers, verify=verify,
+                                  params=page, timeout=180)
+        odata_raise(resp, entity)
+        data = json_or_none(resp)
+        if isinstance(data, dict) and "value" in data:
+            chunk = [x for x in data.get("value", []) if isinstance(x, dict)]
+        elif isinstance(data, dict):
+            chunk = [data]  # запрос одного объекта по ссылке
+        else:
+            raise ConnectorError("1С вернула не JSON.", "Проверьте, что в адресе нет лишнего.", details_for(resp))
+        records.extend(chunk)
+        if not all_pages or len(chunk) < batch or len(records) >= max_records:
+            return records[:max_records]
+        skip += batch
+
+
+def odata_key(guid: str) -> str:
+    """Ссылка на объект в формате OData 1С: (guid'…')."""
+    return f"(guid'{guid.strip()}')"

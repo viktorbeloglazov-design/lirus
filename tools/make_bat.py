@@ -89,7 +89,10 @@ if errorlevel 1 goto pip_failed
 goto pip_done
 :offline_install
 echo       Найдена папка wheels — ставим без интернета
-"venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q --no-index --find-links wheels -r requirements.txt
+"venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q --no-index --find-links wheels -r requirements.txt colorama
+if not errorlevel 1 goto pip_done
+echo       Из папки wheels поставилось не всё — докачиваем из интернета...
+"venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q --find-links wheels -r requirements.txt
 if errorlevel 1 goto pip_failed
 :pip_done
 

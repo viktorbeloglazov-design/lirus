@@ -29,6 +29,7 @@ from .auth import ROLES, can, page
 from .connectors import BY_KEY, CATEGORY_ORDER, TYPES, context_for, get_type, run_check, validate_form
 from .connectors import google as g
 from .connectors.base import ERROR, OK, STATUS_TITLES, WARN, ConnectorError, normalize_url
+from . import onec_views
 from .workflows import views as wf_views
 
 log = logging.getLogger(__name__)
@@ -998,6 +999,7 @@ def create_app() -> Starlette:
         Route("/settings/backup/{name}", settings_backup_download),
         Route("/settings/restart", settings_restart, methods=["POST"]),
         *wf_views.routes(),
+        *onec_views.routes(),
         Mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static"),
     ]
     return Starlette(

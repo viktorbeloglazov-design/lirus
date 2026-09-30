@@ -260,57 +260,45 @@ CLAUDE = NodeType(
 
 
 async def onec_exec(ctx: NodeContext):
+    from ...connectors import onec
+
     out = []
     for i in range(max(1, len(ctx.items))):
         conn, values, ctype = ctx.connection("connection", i)
-        base = (values.get("base_url") or "").rstrip("/")
-        headers = {"Authorization": basic_auth(values.get("username", ""), values.get("password", "")),
-                   "Accept": "application/json"}
-        verify = bool(values.get("verify_ssl", True))
         op = ctx.raw("operation") or "list"
-        if op in ("list", "get"):
-            entity = ctx.param_str("entity", i).strip()
-            if not entity:
-                raise NodeError("Не указан объект 1С.", "Например: Catalog_Номенклатура или Document_ЗаказКлиента.")
-            path = f"/odata/standard.odata/{quote(entity)}"
-            if op == "get":
-                key = ctx.param_str("key", i).strip()
-                path += f"(guid'{quote(key)}')"
-            params = {"$format": "json"}
-            allowed = ("filter", "select", "orderby", "expand") if op == "list" else ("select", "expand")
-            for p in allowed:
-                v = ctx.param_str(p, i).strip()
-                if v:
-                    params["$" + p] = v
-            if op == "list":
-                params["$top"] = str(int(ctx.param_num("top", i, 100)))
-            resp = await call(ctx, "GET", base + path, service="1С", headers=headers, verify=verify,
-                              params=params, timeout=120)
-        else:
-            path = ctx.param_str("hs_path", i).strip()
-            if not path.startswith("/"):
-                path = "/" + path
-            method = (ctx.raw("hs_method") or "GET").upper()
-            kwargs = {"json": ctx.param_json("hs_body", i, {})} if method != "GET" else {}
-            resp = await call(ctx, method, base + path, service="1С", headers=headers, verify=verify, timeout=120,
-                              **kwargs)
-        if resp.status_code == 401:
-            raise NodeError("1С не пустила: неверное имя пользователя или пароль.", "Проверьте подключение 1С.")
-        if resp.status_code == 403:
-            raise NodeError("У пользователя 1С нет прав на этот объект.",
-                            "Добавьте объект в «Настройке стандартного интерфейса OData» и выдайте права.")
-        if resp.status_code == 404:
-            raise NodeError("1С не нашла такой объект или адрес.",
-                            "Проверьте имя объекта (регистр букв важен) — список объектов виден в проверке подключения.")
-        if resp.status_code >= 400:
-            raise http_error("1С", resp)
-        data = json_or_none(resp)
-        if data is None:
-            out.append(item({"data": resp.text}))
-        elif op == "list" and isinstance(data, dict):
-            out.extend(item(x) for x in data.get("value", []))
-        else:
-            out.extend(response_items(data))
+        try:
+            if op in ("list", "get"):
+                entity = ctx.param_str("entity", i).strip()
+                if not entity:
+                    raise NodeError("Не указан объект 1С.",
+                                    "Выберите его из подсказок или посмотрите в «Обозревателе 1С» на странице подключения.")
+                params = {}
+                allowed = ("filter", "select", "orderby", "expand") if op == "list" else ("select", "expand")
+                for p in allowed:
+                    params["$" + p] = ctx.param_str(p, i).strip()
+                if op == "get":
+                    entity += onec.odata_key(ctx.param_str("key", i))
+                records = await onec.odata_query(
+                    values, ctx.check_context(ctype), entity, params,
+                    top=int(ctx.param_num("top", i, 100)), all_pages=ctx.param_bool("all_pages", i),
+                    max_records=int(ctx.param_num("max_records", i, 100000)))
+                out.extend(item(r) for r in records)
+                ctx.log(f"{entity}: получено записей — {len(records)}")
+            else:
+                base = (values.get("base_url") or "").rstrip("/")
+                path = ctx.param_str("hs_path", i).strip()
+                if not path.startswith("/"):
+                    path = "/" + path
+                method = (ctx.raw("hs_method") or "GET").upper()
+                kwargs = {"json": ctx.param_json("hs_body", i, {})} if method != "GET" else {}
+                resp = await http_request(method, base + path, ctx.check_context(ctype), service="1С",
+                                          headers=onec.odata_headers(values),
+                                          verify=bool(values.get("verify_ssl", True)), timeout=180, **kwargs)
+                onec.odata_raise(resp, path)
+                data = json_or_none(resp)
+                out.extend(response_items(data) if data is not None else [item({"data": resp.text})])
+        except ConnectorError as exc:
+            raise NodeError(exc.message, exc.action, exc.details) from exc
         if not ctx.items:
             break
     return [out]
@@ -326,7 +314,9 @@ ONEC = NodeType(
             ("list", "Получить список (OData)"), ("get", "Получить один объект по ссылке (OData)"),
             ("hs", "Вызвать HTTP-сервис")]),
         Param("entity", "Объект", "string", "Catalog_Номенклатура", show_if={"operation": ["list", "get"]},
-              hint="Catalog_… — справочник, Document_… — документ, AccumulationRegister_…_Balance — остатки."),
+              suggest="onec_entities",
+              hint="Начните вводить — появятся объекты вашей 1С. Catalog_… — справочник, Document_… — документ, "
+                   "AccumulationRegister_…/Balance() — остатки регистра."),
         Param("key", "Ссылка (GUID)", "string", "", show_if={"operation": ["get"]}),
         Param("filter", "Отбор ($filter)", "string", "", show_if={"operation": ["list"]},
               placeholder="DeletionMark eq false", hint="Синтаксис OData: eq, ne, gt, lt, and, or."),
@@ -335,6 +325,9 @@ ONEC = NodeType(
         Param("orderby", "Сортировка ($orderby)", "string", "", show_if={"operation": ["list"]}),
         Param("expand", "Раскрыть ссылки ($expand)", "string", "", show_if={"operation": ["list", "get"]}),
         Param("top", "Сколько записей", "number", 100, show_if={"operation": ["list"]}),
+        Param("all_pages", "Забрать все записи (порциями по 500)", "boolean", False, show_if={"operation": ["list"]},
+              hint="Для больших справочников: 1С отдаёт их частями, платформа склеит."),
+        Param("max_records", "Но не больше", "number", 100000, show_if={"all_pages": [True]}),
         Param("hs_method", "Метод", "select", "GET", show_if={"operation": ["hs"]}, no_expr=True,
               options=[("GET", "GET"), ("POST", "POST")]),
         Param("hs_path", "Путь", "string", "/hs/platform/ping", show_if={"operation": ["hs"]}),

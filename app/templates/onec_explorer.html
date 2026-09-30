@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Обозреватель 1С{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/connections">Подключения</a> → <a href="/connections/{{ conn.id }}">{{ conn.name }}</a> → обозреватель</p>
+<div class="head-row">
+  <h1>Обозреватель 1С</h1>
+  <a class="button ghost" href="/connections/{{ conn.id }}/1c?fresh=1">Обновить список</a>
+</div>
+<p class="muted">Что база «{{ conn.name }}» отдаёт через OData. Нажмите на объект — появятся первые записи. Имя объекта можно скопировать в узел «1С» в сценарии.</p>
+
+{% if error %}
+<section class="card">
+  <div class="flash flash-error">{{ error }}</div>
+  {% if action %}<div class="todo"><b>Что делать:</b> {{ action }}</div>{% endif %}
+</section>
+{% else %}
+<div class="onec-layout" id="onec" data-conn="{{ conn.id }}">
+  <aside class="card onec-list">
+    <input id="onec-search" placeholder="Найти: номенклатура, заказ, остатки…" spellcheck="false">
+    <p class="muted small-note">Объектов: {{ total }}</p>
+    {% for g, names in groups %}
+    <details class="onec-group" {{ 'open' if loop.index <= 3 }}>
+      <summary>{{ g }} <span class="muted">({{ names | length }})</span></summary>
+      <ul>{% for n in names %}<li><button type="button" class="link onec-entity" data-entity="{{ n }}">{{ n.split('_', 1)[1] if '_' in n else n }}</button></li>{% endfor %}</ul>
+    </details>
+    {% endfor %}
+    {% if not groups %}<p>Объектов нет. В 1С нужно отметить их в «Настройке стандартного интерфейса OData» — см. инструкцию для программиста 1С.</p>{% endif %}
+  </aside>
+  <section class="card onec-preview">
+    <div id="onec-empty" class="muted">Выберите объект слева.</div>
+    <div id="onec-panel" hidden>
+      <div class="onec-name"><code id="onec-entity-name"></code> <button type="button" class="ghost small" id="onec-copy">Копировать имя</button></div>
+      <div class="onec-filters">
+        <label>Отбор ($filter) <input id="onec-filter" placeholder="DeletionMark eq false" spellcheck="false"></label>
+        <label>Поля ($select) <input id="onec-select" placeholder="Ref_Key,Description,Артикул" spellcheck="false"></label>
+        <label class="onec-top">Сколько <input id="onec-top" value="20" inputmode="numeric"></label>
+        <button type="button" class="primary" id="onec-load">Показать</button>
+      </div>
+      <p class="hint">Остатки регистра: добавьте к имени <code>/Balance()</code>, обороты — <code>/Turnovers()</code>. Строки в отборе — в одинарных кавычках, даты — <code>datetime'2026-01-01T00:00:00'</code>.</p>
+      <div id="onec-status" class="muted"></div>
+      <div id="onec-result"></div>
+    </div>
+  </section>
+</div>
+<script src="/static/onec.js?v={{ APP_VERSION }}" defer></script>
+{% endif %}
+{% endblock %}

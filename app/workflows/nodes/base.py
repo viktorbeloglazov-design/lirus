@@ -37,12 +37,13 @@ class Param:
     conn_types: list[str] = field(default_factory=list)  # для kind="connection"
     no_expr: bool = False  # значение не вычисляется как выражение (например, код)
     columns: list[dict] = field(default_factory=list)  # для kind="list": [{name, label, kind, options}]
+    suggest: str = ""  # подсказки значений из системы, например "onec_entities"
 
     def to_dict(self) -> dict:
         return {"name": self.name, "label": self.label, "kind": self.kind, "default": self.default,
                 "hint": self.hint, "options": [list(o) for o in self.options], "required": self.required,
                 "placeholder": self.placeholder, "show_if": self.show_if, "conn_types": self.conn_types,
-                "columns": self.columns}
+                "columns": self.columns, "suggest": self.suggest}
 
 
 @dataclass

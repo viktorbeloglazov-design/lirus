@@ -49,6 +49,49 @@ async def odata(request: Request):
     ]})
 
 
+NOMENKLATURA = [{"Ref_Key": f"00000000-0000-0000-0000-{i:012d}", "Description": f"Товар {i}",
+                 "Артикул": f"АРТ-{i:04d}", "DeletionMark": i % 50 == 0} for i in range(1, 1201)]
+DATA = {
+    "Catalog_Номенклатура": NOMENKLATURA,
+    "Catalog_Контрагенты": [{"Ref_Key": "c1", "Description": "ООО «Ромашка»", "ИНН": "7701234567"},
+                            {"Ref_Key": "c2", "Description": "ИП Иванов", "ИНН": "500100732259"}],
+    "Document_ЗаказКлиента": [{"Ref_Key": "d1", "Number": "КА-000001", "Date": "2026-09-01T10:00:00",
+                               "СуммаДокумента": 150000, "Контрагент_Key": "c1"}],
+    "AccumulationRegister_ТоварыНаСкладах/Balance()": [
+        {"Номенклатура_Key": "00000000-0000-0000-0000-000000000001", "Склад_Key": "s1", "ВНаличииBalance": 12},
+        {"Номенклатура_Key": "00000000-0000-0000-0000-000000000002", "Склад_Key": "s1", "ВНаличииBalance": 0}],
+}
+
+
+def _odata_error(status: int, text: str):
+    return JSONResponse({"odata.error": {"code": "-1", "message": {"lang": "ru", "value": text}}}, status_code=status)
+
+
+async def entity(request: Request):
+    if not authorized(request):
+        return PlainTextResponse("Unauthorized", status_code=401)
+    name = request.path_params["name"]
+    rows = DATA.get(name)
+    if rows is None:
+        return _odata_error(404, f"Не найден объект {name}")
+    flt = request.query_params.get("$filter", "")
+    if flt:
+        if flt == "DeletionMark eq false":
+            rows = [r for r in rows if not r.get("DeletionMark")]
+        elif flt.startswith("Артикул eq '"):
+            want = flt.split("'")[1]
+            rows = [r for r in rows if r.get("Артикул") == want]
+        else:
+            return _odata_error(400, "Ошибка разбора выражения отбора")
+    skip = int(request.query_params.get("$skip", "0") or 0)
+    top = int(request.query_params.get("$top", "1000") or 1000)
+    page = rows[skip:skip + top]
+    sel = [x for x in request.query_params.get("$select", "").split(",") if x]
+    if sel:
+        page = [{k: r.get(k) for k in sel} for r in page]
+    return JSONResponse({"odata.metadata": "x", "value": page})
+
+
 async def hs(request: Request):
     if not authorized(request):
         return PlainTextResponse("Unauthorized", status_code=401)
@@ -61,6 +104,7 @@ async def not_found(request: Request):
 
 app = Starlette(routes=[
     Route("/ka/", base), Route("/ka/odata/standard.odata/", odata), Route("/ka/hs/platform/ping", hs),
+    Route("/ka/odata/standard.odata/{name:path}", entity),
     Route("/noodata/", base), Route("/noodata/odata/standard.odata/", not_found),
 ])
 

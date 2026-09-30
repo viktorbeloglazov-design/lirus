@@ -234,3 +234,20 @@ button.link { cursor: pointer; }
   .content { padding: 18px; }
   .two-col { grid-template-columns: 1fr; }
 }
+
+/* ----- обозреватель 1С ----- */
+.onec-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+.onec-list { position: sticky; top: 12px; max-height: calc(100vh - 40px); overflow: auto; }
+.onec-list ul { list-style: none; margin: 4px 0 8px; padding: 0 0 0 8px; }
+.onec-list li { padding: 2px 0; font-size: 14px; }
+.onec-group summary { cursor: pointer; font-weight: 600; padding: 4px 0; color: var(--text); }
+.onec-entity.active { font-weight: 700; }
+.small-note { font-size: 13px; margin: 6px 0; }
+.onec-name { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.onec-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.onec-filters label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; flex: 1; min-width: 180px; }
+.onec-filters .onec-top { flex: 0 0 90px; min-width: 90px; }
+.onec-table-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; }
+.onec-table th, .onec-table td { white-space: nowrap; font-size: 13px; padding: 5px 8px; }
+.onec-table th { position: sticky; top: 0; background: var(--surface); }
+@media (max-width: 900px) { .onec-layout { grid-template-columns: 1fr; } .onec-list { position: static; max-height: 50vh; } }

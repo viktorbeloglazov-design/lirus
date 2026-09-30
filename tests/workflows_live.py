@@ -224,8 +224,8 @@ def main():
                                    N("o", "onec", "1С", {"connection": str(onec_id), "operation": "list",
                                                          "entity": "Catalog_Номенклатура"}, x=250)],
                          "connections": [E("t", "o")]})
-    check(ex["status"] == "error" and "1С не нашла такой объект" in ex["error"], "Узел 1С: подключение из панели, ошибка по-русски",
-          ex.get("error", ""))
+    check(ex["status"] == "success" and out_items(ex, "o")[:1] and out_items(ex, "o")[0].get("Description") == "Товар 1",
+          "Узел 1С: данные из подключения панели", ex.get("error", ""))
     claude_id = next(x["id"] for x in a.get("/api/lookup").json()["connections"] if x["type"] == "claude")
     ex = a.run(code_id, {"nodes": [N("t", "manual", "Старт"),
                                    N("ai", "claude", "Claude", {"connection": str(claude_id), "prompt": "Привет"}, x=250)],

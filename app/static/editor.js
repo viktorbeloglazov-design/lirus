@@ -624,8 +624,16 @@
               params: defaultsFor(t), disabled: false, settings: {} };
     S.wf.nodes.push(n);
     if (pending && pending.from && t.inputs > 0) S.wf.connections.push({ from: pending.from, out: pending.out, to: n.id, in: 0 });
-    else if (!pending && t.inputs > 0 && S.selected.size === 1) {
-      var sel = nodeById(Array.from(S.selected)[0]);
+    else if (!pending && t.inputs > 0) {
+      var sel = S.selected.size === 1 ? nodeById(Array.from(S.selected)[0]) : null;
+      if (!sel) {
+        // Ничего не выделено: если «хвост» один (узел, после которого ничего нет), продолжаем от него
+        var tails = S.wf.nodes.filter(function (x) {
+          return x.id !== n.id && !isNote(x) && outputsOf(x).length &&
+                 !S.wf.connections.some(function (e) { return e.from === x.id; });
+        });
+        if (tails.length === 1) sel = tails[0];
+      }
       if (sel && outputsOf(sel).length) {
         n.position = [sel.position[0] + 280, sel.position[1]];
         S.wf.connections.push({ from: sel.id, out: 0, to: n.id, in: 0 });
@@ -809,12 +817,40 @@
       input.addEventListener("focus", function () { S.lastInput = { el: input, node: n.id, name: p.name }; });
       if (p.kind === "code") input.addEventListener("keydown", tabInTextarea);
       wrap.appendChild(input);
+      if (p.suggest === "onec_entities" && !multi) attachOnecSuggest(n, input, wrap);
       var previewEl = h("div", { class: "wf-preview", hidden: true });
       wrap.appendChild(previewEl);
       updatePreview(n, input, previewEl);
     }
     if (p.hint) wrap.appendChild(h("div", { class: "hint", text: p.hint }));
     return wrap;
+  }
+
+  // Подсказки объектов 1С: список берётся из самой базы через OData
+  var onecCache = {};
+  function attachOnecSuggest(n, input, wrap) {
+    var conn = (n.params && n.params.connection) || "auto";
+    var listId = "onec-entities-" + String(conn).replace(/\W/g, "");
+    input.setAttribute("list", listId);
+    var note = h("div", { class: "hint", text: "Загружаем список объектов 1С…" });
+    wrap.appendChild(note);
+    function fill(names, error) {
+      var dl = document.getElementById(listId);
+      if (!dl) { dl = h("datalist", { id: listId }); document.body.appendChild(dl); }
+      dl.textContent = "";
+      names.forEach(function (x) { dl.appendChild(h("option", { value: x })); });
+      note.textContent = error ? ("Список объектов не получен: " + error)
+                               : ("Объектов в базе: " + names.length + ". Начните вводить — появятся подсказки.");
+      if (!error && conn !== "auto") {
+        note.appendChild(document.createTextNode(" "));
+        note.appendChild(h("a", { href: "/connections/" + conn + "/1c", target: "_blank", text: "Обозреватель 1С" }));
+      }
+    }
+    if (onecCache[conn]) { fill(onecCache[conn]); return; }
+    fetch("/api/onec/" + encodeURIComponent(conn) + "/entities", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (!d.error) onecCache[conn] = d.entities; fill(d.entities || [], d.error); })
+      .catch(function () { note.textContent = "Список объектов не получен: нет связи с панелью."; });
   }
 
   function tabInTextarea(ev) {

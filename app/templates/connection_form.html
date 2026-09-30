@@ -29,6 +29,7 @@
     <p>{{ conn.status_message }}</p>
     {% if conn.status_action and conn.status != 'ok' %}<div class="todo"><b>Что делать:</b> {{ conn.status_action }}</div>{% endif %}
     {% endif %}
+    {% if ctype.key == 'onec' %}<p><a class="button ghost small" href="/connections/{{ conn.id }}/1c">Обозреватель 1С: какие объекты видны и что в них →</a></p>{% endif %}
   </section>
   {% endif %}
 
