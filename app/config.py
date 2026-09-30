@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 APP_NAME = "Центр управления бизнесом"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -25,12 +26,26 @@ CONTROL_TOKEN_PATH = DATA_DIR / "control.token"
 TLS_DIR = DATA_DIR / "tls"
 
 TASK_NAME = "BusinessPlatform"  # имя задачи в Планировщике Windows
+MAC_LABEL = "ru.platforma.business"  # имя службы автозапуска на Mac (launchd)
+
+IS_MAC = sys.platform == "darwin"
+SCRIPT_EXT = ".command" if IS_MAC else ".bat"
+
+
+def local(text: str) -> str:
+    """Подставляет в подсказку названия файлов этой системы: на Mac вместо .bat — .command."""
+    if not IS_MAC:
+        return text
+    text = text.replace(".bat", ".command").replace("logs\\app.log", "logs/app.log")
+    return text.replace("перетащите файл копии мышью на", "дважды щёлкните").replace(
+        "перетащите этот файл мышью на", "дважды щёлкните").replace(
+        "Перетащите файл копии мышью на", "Дважды щёлкните")
 
 DEFAULTS = {"HOST": "0.0.0.0", "PORT": "8080"}
 
 ENV_HEADER = (
     "# Параметры запуска платформы.\n"
-    "# Обычно менять не нужно: порт меняется в панели (Настройки) или файлом сменить-порт.bat.\n"
+    "# Обычно менять не нужно: порт меняется в панели (Настройки) или файлом сменить-порт" + SCRIPT_EXT + ".\n"
 )
 
 
@@ -53,7 +68,9 @@ def write_env(values: dict[str, str]) -> None:
     current = read_env()
     current.update({k.upper(): str(v) for k, v in values.items()})
     body = ENV_HEADER + "".join(f"{k}={v}\n" for k, v in current.items())
-    ENV_FILE.write_text(body.replace("\n", "\r\n"), encoding="utf-8", newline="")
+    if not IS_MAC:
+        body = body.replace("\n", "\r\n")
+    ENV_FILE.write_text(body, encoding="utf-8", newline="")
 
 
 def host() -> str:

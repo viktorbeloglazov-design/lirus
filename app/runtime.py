@@ -12,6 +12,8 @@ from . import config
 log = logging.getLogger(__name__)
 
 servers: list = []  # uvicorn.Server, заполняет run.py
+# Код выхода serve. 75 — «перезапусти меня»: так перезапуск просит у launchd на Mac.
+exit_code = 0
 
 
 def can_restart() -> bool:
@@ -29,6 +31,13 @@ def request_shutdown(delay: float = 0.5) -> None:
 
 def request_restart() -> None:
     """Запускает помощника, который дождётся остановки и поднимет платформу заново."""
+    global exit_code
+    if os.environ.get("PLATFORM_LAUNCHD"):
+        # Под присмотром launchd: выходим с ошибкой — он сам запустит платформу заново.
+        exit_code = 75
+        log.info("Перезапуск: выходим, launchd запустит заново")
+        request_shutdown(1.0)
+        return
     python = sys.executable
     if os.name == "nt":
         pyw = os.path.join(os.path.dirname(python), "pythonw.exe")

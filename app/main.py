@@ -126,7 +126,7 @@ async def internal_shutdown(request: Request) -> Response:
     expected = config.CONTROL_TOKEN_PATH.read_text().strip() if config.CONTROL_TOKEN_PATH.exists() else ""
     if host not in ("127.0.0.1", "::1") or not expected or not hmac.compare_digest(token, expected):
         return PlainTextResponse("forbidden", status_code=403)
-    store.log_event("info", "system", "Платформа остановлена (остановить.bat)")
+    store.log_event("info", "system", f"Платформа остановлена (остановить{config.SCRIPT_EXT})")
     if runtime.can_restart():
         runtime.request_shutdown()
         return PlainTextResponse("stopping")
@@ -850,8 +850,8 @@ async def settings_backup_download(request: Request) -> Response:
 @page("settings")
 async def settings_restart(request: Request) -> Response:
     if not runtime.can_restart():
-        auth.flash(request, "error", "Перезапуск из панели недоступен в этом режиме. Запустите остановить.bat, "
-                                     "затем запустить.bat.")
+        auth.flash(request, "error", config.local("Перезапуск из панели недоступен в этом режиме. "
+                                                  "Запустите остановить.bat, затем запустить.bat."))
         return redirect("/settings")
     store.log_event("info", "system", "Перезапуск платформы из панели", "", **who(request))
     runtime.request_restart()

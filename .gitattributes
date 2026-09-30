@@ -1,2 +1,3 @@
 *.bat -text
 *.png binary
+*.command text eol=lf

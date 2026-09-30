@@ -38,6 +38,7 @@ def say(text: str = "") -> None:
     """Печать, которая не падает на старых консолях Windows и под pythonw."""
     if sys.stdout is None:
         return
+    text = config.local(text)
     try:
         print(text, flush=True)
     except UnicodeEncodeError:
@@ -124,6 +125,8 @@ def serve() -> int:
             log.error("Порт %s занят другой программой", port)
         return EXIT_PORT_BUSY
     config.PID_PATH.write_text(str(os.getpid()))
+    if config.IS_MAC:
+        _keep_mac_awake(log)
     servers = [uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_config=None, access_log=False,
                                              proxy_headers=True, forwarded_allow_ips="127.0.0.1",
                                              timeout_graceful_shutdown=5))]
@@ -164,7 +167,17 @@ def serve() -> int:
         except OSError:
             pass
     log.info("Платформа остановлена")
-    return EXIT_OK
+    return runtime.exit_code
+
+
+def _keep_mac_awake(log: logging.Logger) -> None:
+    """Не даём Mac уснуть, пока работает платформа (экран при этом гаснет как обычно)."""
+    try:
+        subprocess.Popen(["/usr/bin/caffeinate", "-i", "-s", "-w", str(os.getpid())],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log.info("Сон Mac отключён, пока работает платформа")
+    except OSError:
+        log.warning("Не удалось запретить Mac засыпать (caffeinate)")
 
 
 # ------------------------------------------------------------------- start
@@ -205,6 +218,15 @@ def start(args: list[str]) -> int:
         say(f"ОШИБКА: порт {port} занят другой программой (например, IIS, Skype или другой веб-сервер).")
         say("Что делать: закройте ту программу или выберите другой порт — запустите сменить-порт.bat.")
         return EXIT_PORT_BUSY
+    if config.IS_MAC and "--after-pid" not in args and _mac_agent_loaded():
+        # Автозапуск включён — запускаем через launchd, чтобы он и дальше присматривал за платформой.
+        _launchctl("kickstart", f"gui/{os.getuid()}/{MAC_LABEL}")
+        say("Запускаем платформу…")
+        if wait(["40"]) == EXIT_OK:
+            if "--no-browser" not in args:
+                _open_browser(port)
+            return EXIT_OK
+        return EXIT_FAIL
     cmd = [_python_for_background(), str(BASE / "run.py"), "serve"]
     kwargs: dict = {"cwd": str(BASE), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
                     "stderr": subprocess.DEVNULL, "close_fds": True}
@@ -368,7 +390,7 @@ def reset_admin() -> int:
         db.execute("INSERT INTO users(login, full_name, role, password_hash, must_change_password, created_at) "
                    "VALUES('admin', 'Администратор', 'admin', ?, 1, ?)", (auth.hash_password("admin"), time.time()))
     db.execute("DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE login = 'admin')")
-    store.log_event("warning", "auth", "Пароль admin сброшен на стандартный (сбросить-пароль-администратора.bat)")
+    store.log_event("warning", "auth", "Пароль admin сброшен на стандартный (сбросить-пароль-администратора" + config.SCRIPT_EXT + ")")
     say("Готово: вход admin, пароль admin. При входе панель попросит придумать новый пароль.")
     return EXIT_OK
 
@@ -429,6 +451,89 @@ def autostart_xml(args: list[str]) -> int:
     return EXIT_OK
 
 
+# ---------------------------------------------------------------- Mac: launchd
+
+MAC_LABEL = config.MAC_LABEL
+
+
+def mac_plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{MAC_LABEL}.plist"
+
+
+def _launchctl(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["launchctl", *args], capture_output=True, text=True, timeout=20)
+
+
+def _mac_agent_loaded() -> bool:
+    try:
+        return mac_plist_path().exists() and \
+            _launchctl("print", f"gui/{os.getuid()}/{MAC_LABEL}").returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def autostart_mac(args: list[str]) -> int:
+    """Автозапуск на Mac: агент launchd запускает платформу после входа в систему и после сбоя.
+
+    Агент пользователя, а не системная служба, — чтобы не просить пароль администратора
+    в терминале. Поэтому на Mac нужен автоматический вход в систему (см. ИНСТРУКЦИЯ-MAC)."""
+    import plistlib
+
+    action = args[0] if args else "status"
+    plist = mac_plist_path()
+    domain = f"gui/{os.getuid()}"
+    if action == "status":
+        loaded = _mac_agent_loaded()
+        say("Автозапуск включён." if loaded else "Автозапуск выключен.")
+        return EXIT_OK if loaded else EXIT_FAIL
+    if action == "off":
+        if plist.exists():
+            _launchctl("bootout", f"{domain}/{MAC_LABEL}")
+            plist.unlink()
+            say("Автозапуск выключен. Платформа остановлена; запускать её теперь — запустить.command.")
+        else:
+            say("Автозапуск и так не был включён.")
+        return EXIT_OK
+    # on
+    home = Path.home()
+    for name, title in (("Desktop", "Рабочий стол"), ("Documents", "Документы"), ("Downloads", "Загрузки")):
+        if (home / name) in BASE.parents:
+            # macOS не пускает службы автозапуска в эти папки без отдельного разрешения.
+            say(f"ОШИБКА: папка платформы лежит в «{title}» — оттуда macOS не даст запускать её автоматически.")
+            say(f"Что делать: остановите платформу, перетащите папку {BASE.name} в папку пользователя "
+                f"(в Finder: меню «Переход» → «Домой»), затем запустите установить.command и "
+                "автозапуск-включить.command из нового места.")
+            return EXIT_FAIL
+    config.ensure_dirs()
+    plist.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "Label": MAC_LABEL,
+        "ProgramArguments": [sys.executable, str(BASE / "run.py"), "serve"],
+        "WorkingDirectory": str(BASE),
+        "RunAtLoad": True,
+        # Перезапускать, только если упала; после остановить.command — не поднимать.
+        "KeepAlive": {"SuccessfulExit": False},
+        "ThrottleInterval": 15,
+        "StandardOutPath": str(config.LOGS_DIR / "launchd.log"),
+        "StandardErrorPath": str(config.LOGS_DIR / "launchd.log"),
+        "EnvironmentVariables": {"LANG": "ru_RU.UTF-8", "PYTHONIOENCODING": "utf-8", "PLATFORM_LAUNCHD": "1"},
+    }
+    if is_ours(health(config.port())):
+        stop()
+    _launchctl("bootout", f"{domain}/{MAC_LABEL}")
+    with open(plist, "wb") as fh:
+        plistlib.dump(data, fh)
+    res = _launchctl("bootstrap", domain, str(plist))
+    if res.returncode != 0:
+        res = _launchctl("load", "-w", str(plist))  # старые версии macOS
+    if res.returncode != 0:
+        say("ОШИБКА: macOS не приняла автозапуск: " + (res.stderr or res.stdout).strip())
+        say("Что делать: перезагрузите Mac и запустите автозапуск-включить.command ещё раз.")
+        return EXIT_FAIL
+    say("Автозапуск включён: платформа будет запускаться сама после входа в систему.")
+    return wait(["60"])
+
+
 def setup() -> int:
     config.ensure_dirs()
     if not config.ENV_FILE.exists():
@@ -459,6 +564,7 @@ def main(argv: list[str]) -> int:
         "wait": lambda: wait(rest),
         "port": lambda: (say(str(config.port())), EXIT_OK)[1],
         "autostart-xml": lambda: autostart_xml(rest),
+        "autostart-mac": lambda: autostart_mac(rest),
     }
     if cmd not in commands:
         say(__doc__ or "")

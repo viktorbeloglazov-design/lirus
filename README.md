@@ -2,9 +2,11 @@
 
 Своё приложение вместо n8n: веб-панель управления, подключения ко всем системам компании
 (1С, Битрикс24, Gmail и Google Диск, Wildberries, Ozon, Яндекс Маркет), ядро на Claude API
-и бот в MAX / Telegram для сотрудников. Разворачивается на виртуальной машине с Windows.
+и бот в MAX / Telegram для сотрудников. Разворачивается на Windows (сервер или виртуальная машина)
+или на Mac.
 
-Инструкция для системного администратора — **[ИНСТРУКЦИЯ.md](ИНСТРУКЦИЯ.md)**.
+Инструкция для системного администратора — **[ИНСТРУКЦИЯ.md](ИНСТРУКЦИЯ.md)**, установка на Mac —
+**[ИНСТРУКЦИЯ-MAC.md](ИНСТРУКЦИЯ-MAC.md)**.
 
 ## Этапы
 
@@ -37,6 +39,8 @@ app/
   templates/ static/
 run.py             serve | start | stop | status | backup | restore | reset-admin | set-port | setup
 tools/make_bat.py  генерирует .bat-файлы (UTF-8, CRLF, chcp 65001)
+tools/make_command.py  генерирует .command-файлы для Mac (bash 3.2, LF, права 755)
+tools/build_release.py  архивы для Windows и Mac с библиотеками внутри
 tests/             test_connectors.py (подменённые ответы), scenarios.py (живой сервер), fake_1c.py
 ```
 

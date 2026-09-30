@@ -14,6 +14,7 @@ import sys
 import time
 from datetime import datetime
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
@@ -24,7 +25,8 @@ from .connectors.base import ERROR, OK, WARN, CheckResult, explain_network_error
 
 
 def item(title: str, status: str, message: str, action: str = "", details: str = "") -> dict:
-    return {"title": title, "status": status, "message": message, "action": action, "details": details}
+    return {"title": title, "status": status, "message": config.local(message), "action": config.local(action),
+            "details": details}
 
 
 def _fmt_size(n: float) -> str:
@@ -41,7 +43,7 @@ def check_server(external_date: datetime | None) -> list[dict]:
         items.append(item("Python", OK, f"Версия {ver}."))
     else:
         items.append(item("Python", ERROR, f"Установлен Python {ver}, нужен 3.11 или новее.",
-                          "Установите Python 3.11 или 3.12 с python.org и запустите установить.bat заново."))
+                          "Установите Python 3.12 с python.org и запустите установить.bat заново."))
     items.append(item("Система", OK, f"{platform.system()} {platform.release()} ({platform.machine()})"))
 
     usage = shutil.disk_usage(config.BASE_DIR)
@@ -137,6 +139,16 @@ def check_server(external_date: datetime | None) -> list[dict]:
                                   "администратора»."))
         except Exception as exc:  # noqa: BLE001
             items.append(item("Автозапуск", WARN, "Не удалось проверить автозапуск.", "", repr(exc)))
+
+    if sys.platform == "darwin":
+        plist = Path.home() / "Library" / "LaunchAgents" / f"{config.MAC_LABEL}.plist"
+        if plist.exists():
+            items.append(item("Автозапуск", OK, "Платформа запускается сама после входа в систему."))
+        else:
+            items.append(item("Автозапуск", WARN, "Автозапуск не включён — после перезагрузки Mac платформу "
+                                                  "придётся запускать вручную.",
+                              "Дважды щёлкните автозапуск-включить.command и включите автоматический вход "
+                              "в систему (см. ИНСТРУКЦИЯ-MAC)."))
 
     default_admins = db.query_one("SELECT COUNT(*) AS n FROM users WHERE must_change_password = 1 "
                                   "AND role = 'admin' AND active = 1 AND login = 'admin'")["n"]
