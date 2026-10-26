@@ -6,7 +6,7 @@
   <h1>Сервис бассейнов — мини-приложение в MAX</h1>
   {% if app_url %}<a class="button" href="/max/app" target="_blank" rel="noopener">Открыть предпросмотр</a>{% endif %}
 </div>
-<p class="muted">Клиент открывает приложение в MAX, задаёт вопросы помощнику и записывается на сервис. Заявки попадают в Битрикс24 лидами, менеджеры получают сообщение от бота.</p>
+<p class="muted">Клиент открывает приложение в боте MAX: покупает химию и услуги, записывается на сервис, задаёт вопросы. Заказы попадают в Битрикс24 сделками с товарами, заявки — лидами, менеджеры получают сообщение от бота. Чат бота по умолчанию ведёт Битрикс24 через открытые линии.</p>
 
 <div class="cards">
   <section class="card">
@@ -14,10 +14,15 @@
     {% if bot %}
     <p>Подключён: <b>{{ bot.name }}</b>{% if bot_username %} (@{{ bot_username }}){% endif %}.</p>
     <p class="{{ 'muted' if state.ok else 'error-text' }}">{{ state.text }}{% if state.action %} {{ state.action }}{% endif %}</p>
-    {% if admin %}
+    {% if admin and chat_mode == 'platform' %}
     <form method="post" action="/pool-service/subscribe" data-busy="Подписываем бота…">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button class="primary" type="submit">{{ 'Подписать заново' if state.ok else 'Подписать бота' }}</button>
+    </form>
+    {% elif admin and state.subscribed %}
+    <form method="post" action="/pool-service/unsubscribe" data-busy="Снимаем подписку…">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="primary" type="submit">Снять подписку</button>
     </form>
     {% endif %}
     {% else %}
@@ -40,14 +45,15 @@
 
   <section class="card">
     <h2>Шаг 3. Битрикс24 и ответы</h2>
-    <p>Битрикс24: {% if bitrix %}<b>{{ bitrix.name }}</b> — заявки создаются лидами.{% else %}<span class="error-text">не подключён</span> — заявки будут только в этом разделе. <a href="/connections/new?type=bitrix24">Подключить</a>.{% endif %}</p>
-    <p>Помощник: {% if claude and s.miniapp_use_claude == '1' %}отвечает <b>Claude</b> по сведениям ниже.{% else %}Claude не используется — ответы только из «Частых вопросов», остальное уходит менеджеру.{% endif %}</p>
+    <p>Битрикс24: {% if bitrix %}<b>{{ bitrix.name }}</b> — заказы создаются сделками с товарами, заявки — лидами.{% else %}<span class="error-text">не подключён</span> — заказы и заявки будут только в этом разделе. <a href="/connections/new?type=bitrix24">Подключить</a>.{% endif %}</p>
+    <p>Чат бота: {% if chat_mode == 'bitrix' %}ведёт <b>Битрикс24</b> (открытые линии).{% else %}отвечает <b>платформа</b>{% if claude and s.miniapp_use_claude == '1' %} через Claude{% else %} из «Частых вопросов»{% endif %}.{% endif %}</p>
+    <p>Меню приложения: {{ menu_count }} пунктов, товаров и услуг в магазине: {{ products_count }}.</p>
     <p>Уведомления в MAX получают: {% if managers %}{{ managers | join(', ') }}{% else %}<span class="error-text">никто</span> — укажите ID менеджера ниже или привяжите MAX сотруднику с ролью менеджера.{% endif %}</p>
   </section>
 </div>
 
 <section class="card" id="bookings">
-  <h2>Заявки ({{ bookings | length }})</h2>
+  <h2>Заказы и заявки ({{ bookings | length }})</h2>
   {% if bookings %}
   <table class="table">
     <thead><tr><th>№</th><th>Когда</th><th>Клиент</th><th>Что</th><th>Дата / время</th><th>Статус</th>{% if admin %}<th></th>{% endif %}</tr></thead>
@@ -57,11 +63,11 @@
       <td>{{ b.id }}</td>
       <td class="nowrap">{{ b.created_at | dt }}</td>
       <td>{{ b.name }}{% if b.phone %}<small class="muted block">{{ b.phone }}</small>{% endif %}{% if b.username %}<small class="muted block">@{{ b.username }}</small>{% endif %}</td>
-      <td>{{ b.service }}{% if b.address %}<small class="muted block">{{ b.address }}</small>{% endif %}{% if b.pool %}<small class="muted block">{{ b.pool }}</small>{% endif %}{% if b.comment %}<small class="muted block">{{ b.comment }}</small>{% endif %}</td>
+      <td>{% if b.kind == 'order' %}<b>Заказ</b>{% if b.total %} на {{ '%g' % b.total }} ₽{% endif %}{% for it in b.items_list %}<small class="block">{{ it.name }} × {{ it.qty }}</small>{% endfor %}{% else %}{{ b.service }}{% endif %}{% if b.delivery %}<small class="muted block">{{ 'самовывоз' if b.delivery == 'pickup' else 'доставка' }}</small>{% endif %}{% if b.address %}<small class="muted block">{{ b.address }}</small>{% endif %}{% if b.pool %}<small class="muted block">{{ b.pool }}</small>{% endif %}{% if b.comment %}<small class="muted block">{{ b.comment }}</small>{% endif %}</td>
       <td class="nowrap">{{ b.date_title }}<small class="muted block">{{ b.time_title }}</small></td>
-      <td>{{ b.status_title }}{% if b.bitrix_lead_id %}<small class="muted block">лид №{{ b.bitrix_lead_id }}</small>{% endif %}{% if b.bitrix_error %}<small class="error-text block">{{ b.bitrix_error }}</small>{% endif %}</td>
+      <td>{{ b.status_title }}{% if b.bitrix_deal_id %}<small class="muted block">сделка №{{ b.bitrix_deal_id }}</small>{% endif %}{% if b.bitrix_lead_id %}<small class="muted block">лид №{{ b.bitrix_lead_id }}</small>{% endif %}{% if b.bitrix_error %}<small class="error-text block">{{ b.bitrix_error }}</small>{% endif %}</td>
       {% if admin %}<td class="nowrap">
-        {% if not b.bitrix_lead_id and bitrix %}<form method="post" action="/pool-service/bookings/{{ b.id }}/resend"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost small" type="submit">В Битрикс24</button></form>{% endif %}
+        {% if not b.bitrix_lead_id and not b.bitrix_deal_id and bitrix %}<form method="post" action="/pool-service/bookings/{{ b.id }}/resend"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost small" type="submit">В Битрикс24</button></form>{% endif %}
         {% if b.status not in ('done', 'cancelled') %}<form method="post" action="/pool-service/bookings/{{ b.id }}/status"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="done"><button class="ghost small" type="submit">Выполнена</button></form>{% endif %}
       </td>{% endif %}
     </tr>
@@ -69,7 +75,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="muted">Заявок пока нет. Откройте предпросмотр и отправьте тестовую заявку — она появится здесь.</p>
+  <p class="muted">Заказов и заявок пока нет. Откройте предпросмотр и отправьте тестовый заказ — он появится здесь.</p>
   {% endif %}
 </section>
 
@@ -85,6 +91,10 @@
     <div class="hint">Показывается в приложении кнопкой «Позвонить» и в ответах помощника.</div></div>
   <div class="field"><label for="miniapp_hours">Часы работы</label>
     <input id="miniapp_hours" name="miniapp_hours" value="{{ s.miniapp_hours }}"></div>
+  <div class="field {{ 'has-error' if errors.miniapp_menu }}"><label for="miniapp_menu">Меню главного экрана — по пункту в строке</label>
+    <textarea id="miniapp_menu" name="miniapp_menu" rows="6">{{ s.miniapp_menu }}</textarea>{{ err('miniapp_menu') }}
+    <div class="hint">Формат: «тип | Название кнопки». Первые три пункта попадают и в нижнюю полосу вкладок. Типы:</div>
+    <ul class="hint" style="margin:4px 0 0;padding-left:18px">{% for k, d in menu_types.items() %}<li><code>{{ k }}</code> — {{ d }}</li>{% endfor %}</ul></div>
   <div class="field"><label for="miniapp_about">О компании — для клиентов и помощника</label>
     <textarea id="miniapp_about" name="miniapp_about" rows="5">{{ s.miniapp_about }}</textarea>
     <div class="hint">Чем занимаетесь, что входит в обслуживание, как считается цена. Помощник отвечает только по этим сведениям и «Частым вопросам».</div></div>
@@ -94,6 +104,20 @@
   <div class="field"><label for="miniapp_faq">Частые вопросы</label>
     <textarea id="miniapp_faq" name="miniapp_faq" rows="12">{{ s.miniapp_faq }}</textarea>
     <div class="hint">Вопрос — первой строкой, ответ — следующими. Между вопросами пустая строка.</div></div>
+
+  <h2 id="shop">Магазин: химия и услуги</h2>
+  <div class="field"><label for="miniapp_products">Товары и услуги — по одному в строке</label>
+    <textarea id="miniapp_products" name="miniapp_products" rows="10">{{ s.miniapp_products }}</textarea>
+    <div class="hint">Формат: «Название | цена | описание | категория». Цена 0 — «цена по запросу». Категория группирует товары в магазине: Химия, Услуги, Оборудование. Строки, загруженные из Битрикс24, заканчиваются на «#номер» — так заказ привяжется к товару каталога.</div></div>
+  {% if bitrix %}
+  <div class="actions" style="margin-bottom:16px">
+    <button class="ghost" type="submit" formaction="/pool-service/import-products" formnovalidate data-busy-button="Загружаем…">Загрузить товары из каталога Битрикс24</button>
+    <span class="hint">Заменит список выше активными товарами CRM. Несохранённые правки формы при этом не сохраняются.</span>
+  </div>
+  {% endif %}
+  <div class="field"><label for="miniapp_shop_note">Условия доставки и оплаты</label>
+    <input id="miniapp_shop_note" name="miniapp_shop_note" value="{{ s.miniapp_shop_note }}">
+    <div class="hint">Показывается в магазине над корзиной.</div></div>
 
   <h2>Битрикс24</h2>
   <div class="field"><label for="miniapp_bitrix_conn">Подключение</label>
@@ -105,7 +129,15 @@
     <input id="miniapp_bitrix_assigned" name="miniapp_bitrix_assigned" value="{{ s.miniapp_bitrix_assigned }}" inputmode="numeric" placeholder="например, 7">{{ err('miniapp_bitrix_assigned') }}
     <div class="hint">Откройте в Битрикс24 профиль сотрудника — число в конце адреса страницы. Пусто — ответственный по правилам Битрикс24.</div></div>
 
-  <h2>Уведомления и помощник</h2>
+  <div class="field {{ 'has-error' if errors.miniapp_deal_category }}"><label for="miniapp_deal_category">Воронка для заказов — ID воронки сделок</label>
+    <input id="miniapp_deal_category" name="miniapp_deal_category" value="{{ s.miniapp_deal_category }}" inputmode="numeric" placeholder="пусто — основная воронка">{{ err('miniapp_deal_category') }}
+    <div class="hint">Откройте в Битрикс24 нужную воронку сделок — число после «category_id=» в адресе страницы.</div></div>
+
+  <h2>Чат бота и помощник</h2>
+  <div class="field"><label>Кто отвечает в чате бота</label>
+    <label class="check"><input type="radio" name="miniapp_chat_mode" value="bitrix" {{ 'checked' if s.miniapp_chat_mode != 'platform' }}> Битрикс24 через открытые линии — бот подключён в Битрикс24 как канал MAX, операторы отвечают там</label>
+    <label class="check"><input type="radio" name="miniapp_chat_mode" value="platform" {{ 'checked' if s.miniapp_chat_mode == 'platform' }}> Платформа — помощник отвечает сам, без ответа передаёт вопрос менеджеру (нужна подписка бота, шаг 1)</label>
+    <div class="hint">Одновременно оба отвечать не могут: события бота получает кто-то один.</div></div>
   <div class="field"><label for="miniapp_manager_max_ids">Кому писать о новых заявках — ID в MAX через запятую</label>
     <input id="miniapp_manager_max_ids" name="miniapp_manager_max_ids" value="{{ s.miniapp_manager_max_ids }}" placeholder="123456789, 987654321">
     <div class="hint">Пусто — всем сотрудникам с ролью менеджера и выше, у кого в карточке указан MAX. Узнать свой ID: написать боту, затем «Сценарии → узел MAX → Получить сообщения».</div></div>

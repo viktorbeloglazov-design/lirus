@@ -65,6 +65,7 @@ MAX_CALLS: list[tuple[str, str, dict, dict]] = []
 BITRIX_CALLS: list[tuple[str, dict]] = []
 CLAUDE_REPLY: dict = {"answer": "Чистят раз в неделю.", "handoff": False}
 CLAUDE_CALLS: list[dict] = []
+SUBS: list[dict] = [{"url": "https://old.example/hook", "time": 1}]  # подписки бота в «MAX»
 BITRIX_FAIL = {"on": False}  # пока включено — Битрикс24 «отвергает вебхук»
 
 
@@ -75,8 +76,14 @@ def max_handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"code": "verify.token", "message": "Invalid access_token"})
     if req.url.path == "/me":
         return httpx.Response(200, json={"user_id": 777, "name": "Сервис", "username": "kupibas_bot", "is_bot": True})
-    if req.url.path == "/subscriptions" and req.method == "GET":
-        return httpx.Response(200, json={"subscriptions": [{"url": "https://old.example/hook", "time": 1}]})
+    if req.url.path == "/subscriptions":
+        if req.method == "GET":
+            return httpx.Response(200, json={"subscriptions": list(SUBS)})
+        if req.method == "POST":
+            SUBS.append({"url": body["url"], "time": 2})
+        if req.method == "DELETE":
+            SUBS[:] = [x for x in SUBS if x["url"] != req.url.params.get("url")]
+        return httpx.Response(200, json={"success": True})
     if req.url.path in ("/subscriptions", "/messages", "/answers"):
         return httpx.Response(200, json={"success": True, "message": {"body": {"mid": "m1"}}})
     return httpx.Response(404, json={"message": "not found"})
@@ -95,10 +102,29 @@ def bitrix_handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(401, json={"error": "NO_AUTH_FOUND", "error_description": "Wrong authorization data"})
         return httpx.Response(200, json={"result": 901})
     if method == "crm.status.list":
+        if body.get("filter", {}).get("ENTITY_ID") == "DEAL_STAGE":
+            return httpx.Response(200, json={"result": [{"STATUS_ID": "NEW", "NAME": "Новая сделка"},
+                                                         {"STATUS_ID": "PREPARATION", "NAME": "Подготовка"},
+                                                         {"STATUS_ID": "WON", "NAME": "Сделка успешна"}]})
         return httpx.Response(200, json={"result": [{"STATUS_ID": "NEW", "NAME": "Не обработан"},
                                                      {"STATUS_ID": "IN_PROCESS", "NAME": "В работе"}]})
     if method == "crm.lead.list":
         return httpx.Response(200, json={"result": [{"ID": "901", "STATUS_ID": "IN_PROCESS"}]})
+    if method == "crm.deal.add":
+        return httpx.Response(200, json={"result": 501})
+    if method == "crm.deal.list":
+        return httpx.Response(200, json={"result": [{"ID": "501", "STAGE_ID": "PREPARATION"}]})
+    if method == "crm.dealcategory.list":
+        return httpx.Response(200, json={"result": []})
+    if method == "crm.productsection.list":
+        return httpx.Response(200, json={"result": [{"ID": "3", "NAME": "Химия"}]})
+    if method == "crm.product.list":
+        if body.get("start", 0) == 0:
+            return httpx.Response(200, json={"result": [{"ID": "11", "NAME": "Aquabar Хлор 1 кг", "PRICE": "1250.00",
+                                                          "CURRENCY_ID": "RUB", "DESCRIPTION": "<p>Быстрый хлор</p>", "SECTION_ID": "3"}],
+                                             "next": 50, "total": 2})
+        return httpx.Response(200, json={"result": [{"ID": "12", "NAME": "Чистка бассейна", "PRICE": "5000", "SECTION_ID": None}],
+                                         "total": 2})
     return httpx.Response(200, json={"result": True})
 
 
@@ -214,6 +240,40 @@ def main() -> int:
             check(r.status_code == 200 and d["ok"] and row["status"] == "error" and "Вебхук удалён" in row["bitrix_error"],
                   "Ошибка Битрикс24: заявка сохранена, причина записана", r.text[:300] + " " + str(dict(row)))
 
+            # ------------------------------------------------------ магазин: заказ
+            r = await client.get("/max/api/bootstrap", headers=headers)
+            d = r.json()
+            check(len(d["menu"]) == 5 and d["menu"][0]["type"] == "shop" and len(d["products"]) == 5
+                  and d["chat_mode"] == "bitrix", "bootstrap: меню, товары, режим чата", r.text[:300])
+            key = d["products"][0]["key"]
+            r = await client.post("/max/api/order", headers=headers, json={"name": "Иван Петров", "phone": "8 912 345-67-89",
+                                                                        "delivery": "delivery", "address": "", "items": []})
+            e = r.json().get("errors", {})
+            check(r.status_code == 400 and "items" in e and "address" in e, "Заказ: пустая корзина и адрес — ошибки", r.text)
+            service.save_settings({"miniapp_products": "Aquabar Хлор 1 кг | 1 250 | гранулы | Химия | #11\nЧистка бассейна | 5000 | выезд | Услуги"})
+            BITRIX_CALLS.clear(); MAX_CALLS.clear()
+            r = await client.post("/max/api/order", headers=headers, json={
+                "name": "Иван Петров", "phone": "8 912 345-67-89", "delivery": "pickup", "comment": "Заберу в субботу",
+                "items": [{"key": "p0", "qty": 2}, {"key": "p1", "qty": 1}, {"key": "нет", "qty": 5}]})
+            d = r.json()
+            check(r.status_code == 200 and d["ok"] and d["booking"]["kind"] == "order" and d["booking"]["total"] == 7500
+                  and "7500" in d["message"], "Заказ создан, сумма посчитана", r.text[:300])
+            deal = next(b for m, b in BITRIX_CALLS if m == "crm.deal.add")["fields"]
+            rows = next(b for m, b in BITRIX_CALLS if m == "crm.deal.productrows.set")
+            check(deal["CONTACT_ID"] == 55 and deal["OPPORTUNITY"] == 7500 and "Заказ из MAX" in deal["TITLE"]
+                  and "самовывоз" in deal["COMMENTS"] and rows["id"] == 501 and rows["rows"][0]["PRODUCT_ID"] == 11
+                  and rows["rows"][0]["QUANTITY"] == 2 and "PRODUCT_ID" not in rows["rows"][1],
+                  "Сделка в Битрикс24 с товарами (каталожный и свой)", json.dumps([deal, rows], ensure_ascii=False)[:400])
+            row = db.query_one("SELECT * FROM miniapp_bookings WHERE kind = 'order'")
+            check(row["bitrix_deal_id"] == 501 and row["status"] == "sent", "Заказ помечен «в Битрикс24»")
+            sent = [(p, c) for m, path, p, c in MAX_CALLS if path == "/messages"]
+            check(any(p["user_id"] == "4242" and "Новый заказ" in c["text"] for p, c in sent)
+                  and any(p["user_id"] == "100500" and "Заказ принят" in c["text"] for p, c in sent),
+                  "MAX: менеджер и клиент уведомлены о заказе", str(sent)[:300])
+            r = await client.get("/max/api/bookings", headers=headers)
+            order = next(b for b in r.json()["bookings"] if b["kind"] == "order")
+            check(order["status"] == "Подготовка" and order["items"][0]["qty"] == 2, "Список: стадия сделки из Битрикс24", r.text[:300])
+
             # вопрос — Claude
             CLAUDE_CALLS.clear()
             r = await client.post("/max/api/ask", headers=headers, json={"text": "Как часто чистить бассейн?"})
@@ -248,6 +308,12 @@ def main() -> int:
             r = await client.post("/max/webhook", json={"update_type": "bot_started", "user": {"user_id": 1}})
             check(r.status_code == 403, "Вебхук без секрета — 403")
             MAX_CALLS.clear()
+            r = await client.post("/max/webhook?sync=1", headers={"X-Max-Bot-Api-Secret": secret},
+                                  json={"update_type": "message_created", "timestamp": 1,
+                                        "message": {"sender": {"user_id": 31}, "body": {"text": "Привет"}}})
+            check(r.json().get("result") == "ignored:bitrix" and not MAX_CALLS,
+                  "Режим «чат ведёт Битрикс24»: платформа не отвечает в чате", r.text)
+            service.save_settings({"miniapp_chat_mode": "platform"})
             r = await client.post("/max/webhook?sync=1", headers={"X-Max-Bot-Api-Secret": secret},
                                   json={"update_type": "bot_started", "timestamp": 1, "chat_id": 9,
                                         "user": {"user_id": 31, "first_name": "Ольга", "username": "olga"}})
@@ -292,16 +358,35 @@ def main() -> int:
                   "Панель: подписка бота на вебхук, старая подписка снята", str(subs))
             r = await client.get("/pool-service")
             check("Бот подписан" in r.text or "подписан" in r.text, "Панель: показано сообщение о подписке")
-            r = await client.post("/pool-service", data={"csrf": csrf, "miniapp_title": "", "miniapp_services": "x"})
-            check(r.status_code == 200 and "Название не может быть пустым" in r.text, "Панель: пустое название — ошибка")
+            r = await client.post("/pool-service", data={"csrf": csrf, "miniapp_title": "", "miniapp_services": "x",
+                                                        "miniapp_menu": "shop | Магазин\nкнопка | Что-то"})
+            check(r.status_code == 200 and "Название не может быть пустым" in r.text and "неизвестный тип «кнопка»" in r.text,
+                  "Панель: пустое название и неверный тип меню — ошибки")
+            r = await client.post("/pool-service/import-products", data={"csrf": csrf})
+            prods = service.products()
+            check(r.status_code == 303 and len(prods) == 2 and prods[0] == {"key": "p0", "name": "Aquabar Хлор 1 кг", "price": 1250.0,
+                                                                            "note": "Быстрый хлор", "category": "Химия", "id": 11}
+                  and prods[1]["id"] == 12 and prods[1]["price"] == 5000, "Панель: товары загружены из каталога Битрикс24", str(prods))
             r = await client.post("/pool-service", data={"csrf": csrf, "miniapp_enabled": "1", "miniapp_use_claude": "1",
                                                         "miniapp_title": "Сервис KUPIBAS", "miniapp_services": "Чистка | раз в неделю",
                                                         "miniapp_about": "О нас", "miniapp_hours": "", "miniapp_phone": "",
                                                         "miniapp_faq": "", "miniapp_bitrix_conn": "", "miniapp_bitrix_assigned": "12",
-                                                        "miniapp_manager_max_ids": "4242"})
+                                                        "miniapp_manager_max_ids": "4242", "miniapp_menu": "shop | Магазин\nlink | Сайт | https://kupibas.ru",
+                                                        "miniapp_products": "Хлор | 100", "miniapp_chat_mode": "bitrix", "miniapp_deal_category": "2"})
             check(r.status_code == 303 and service.setting("miniapp_title") == "Сервис KUPIBAS"
-                  and service.services() == [{"name": "Чистка", "note": "раз в неделю"}] and service.bitrix_assigned() == 12,
-                  "Панель: настройки сохранены")
+                  and service.services() == [{"name": "Чистка", "note": "раз в неделю"}] and service.bitrix_assigned() == 12
+                  and service.menu() == [{"type": "shop", "title": "Магазин", "param": ""}, {"type": "link", "title": "Сайт", "param": "https://kupibas.ru"}]
+                  and service.chat_mode() == "bitrix" and service.deal_category() == 2,
+                  "Панель: настройки сохранены (меню, ссылка, режим чата, воронка)")
+            r = await client.post("/pool-service/subscribe", data={"csrf": csrf})
+            r = await client.get("/pool-service")
+            check("Чат бота ведёт Битрикс24" in r.text and "Снять подписку" in r.text,
+                  "Панель в режиме Битрикс24: подписка запрещена, видна кнопка «Снять подписку»", r.text[-3000:])
+            MAX_CALLS.clear()
+            r = await client.post("/pool-service/unsubscribe", data={"csrf": csrf})
+            check(r.status_code == 303 and any(m == "DELETE" and p.get("url") == "https://panel.example.ru/max/webhook"
+                                                for m, path, p, c in MAX_CALLS if path == "/subscriptions") and not SUBS,
+                  "Панель: «Снять подписку» снимает подписку платформы", str(MAX_CALLS)[:300] + str(SUBS))
             r = await client.get("/max/api/bootstrap")  # предпросмотр по сессии панели
             d = r.json()
             check(r.status_code == 200 and d["user"]["preview"] and d["title"] == "Сервис KUPIBAS", "Предпросмотр из панели без initData", r.text[:200])

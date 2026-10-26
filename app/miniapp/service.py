@@ -18,7 +18,7 @@ import httpx
 
 from .. import db, store
 from ..connectors.claude import MODELS, PRICES
-from .crm import BitrixCrm, CrmError, normalize_phone
+from .crm import BitrixCatalog, CrmError, normalize_phone
 from .maxapi import MaxApi, MaxError, btn_callback, btn_open_app, parse_update
 
 log = logging.getLogger(__name__)
@@ -53,7 +53,11 @@ CREATE TABLE IF NOT EXISTS miniapp_bookings (
     kind TEXT NOT NULL DEFAULT 'booking',
     status TEXT NOT NULL DEFAULT 'new',
     bitrix_lead_id INTEGER,
+    bitrix_deal_id INTEGER,
     bitrix_error TEXT NOT NULL DEFAULT '',
+    items TEXT NOT NULL DEFAULT '[]',
+    total REAL NOT NULL DEFAULT 0,
+    delivery TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -70,9 +74,17 @@ CREATE INDEX IF NOT EXISTS miniapp_messages_client ON miniapp_messages(max_id, i
 """
 
 
+NEW_COLUMNS = {"bitrix_deal_id": "INTEGER", "items": "TEXT NOT NULL DEFAULT '[]'",
+               "total": "REAL NOT NULL DEFAULT 0", "delivery": "TEXT NOT NULL DEFAULT ''"}
+
+
 def init() -> None:
     with db.session() as conn:
         conn.executescript(SCHEMA)
+        have = {row["name"] for row in conn.execute("PRAGMA table_info(miniapp_bookings)")}
+        for name, ddl in NEW_COLUMNS.items():  # база, созданная прошлой версией, получает новые поля
+            if name not in have:
+                conn.execute(f"ALTER TABLE miniapp_bookings ADD COLUMN {name} {ddl}")
 
 
 # -------------------------------------------------------------- настройки
@@ -102,8 +114,37 @@ DEFAULT_FAQ = """Как часто нужно чистить бассейн?
 Когда закрывать бассейн на зиму?
 Когда температура воды держится ниже 10–12 °C. Консервацию лучше сделать до первых заморозков."""
 
+DEFAULT_MENU = """shop | Купить химию и услуги
+services | Записаться на сервис
+chat | Задать вопрос
+orders | Мои заказы и заявки
+contacts | Контакты"""
+
+DEFAULT_PRODUCTS = """Хлор быстрый, 1 кг | 0 | гранулы для ударной обработки — замените на свои товары | Химия
+Альгицид, 1 л | 0 | от зелёной воды и водорослей | Химия
+pH минус, 1,5 кг | 0 | снижает кислотность воды | Химия
+Чистка бассейна | 0 | дно, стенки, ватерлиния, фильтр — цена за выезд | Услуги
+Анализ воды с подбором химии | 0 | мастер привозит нужную химию | Услуги"""
+
+# Типы пунктов меню: что показывает кнопка на главном экране.
+MENU_TYPES = {
+    "shop": "Магазин: товары и услуги с ценами, корзина, заказ",
+    "services": "Запись на сервис: форма с выбором услуги и датой",
+    "chat": "Чат с ботом: приложение закрывается, клиент пишет в чат (отвечает Битрикс24 или помощник)",
+    "assistant": "Помощник в приложении: отвечает Claude по сведениям о компании",
+    "orders": "Мои заказы и заявки клиента со статусами из Битрикс24",
+    "contacts": "Контакты: телефон, часы работы, о компании",
+    "faq": "Частые вопросы",
+    "link": "Ссылка: третьим полем адрес, например сайт или каталог на маркетплейсе",
+}
+
 DEFAULTS: dict[str, str] = {
     "miniapp_enabled": "1",
+    "miniapp_menu": DEFAULT_MENU,
+    "miniapp_products": DEFAULT_PRODUCTS,
+    "miniapp_shop_note": "Доставка по городу или самовывоз. Оплата после подтверждения заказа менеджером.",
+    "miniapp_chat_mode": "bitrix",
+    "miniapp_deal_category": "",
     "miniapp_title": "Сервис бассейнов",
     "miniapp_about": DEFAULT_ABOUT,
     "miniapp_services": DEFAULT_SERVICES,
@@ -168,6 +209,76 @@ def services() -> list[dict]:
     return out
 
 
+def menu() -> list[dict]:
+    """Пункты главного экрана: тип, название, параметр (для ссылки — адрес)."""
+    out = []
+    for line in setting("miniapp_menu").splitlines():
+        parts = [x.strip() for x in line.split("|")]
+        if len(parts) < 2 or not parts[0] or not parts[1]:
+            continue
+        kind = parts[0].lower()
+        if kind not in MENU_TYPES:
+            continue
+        item = {"type": kind, "title": parts[1], "param": parts[2] if len(parts) > 2 else ""}
+        if kind == "link" and not re.match(r"^https?://", item["param"]):
+            continue
+        out.append(item)
+    return out
+
+
+def menu_problems(text: str) -> list[str]:
+    problems = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        parts = [x.strip() for x in line.split("|")]
+        if len(parts) < 2 or not parts[1]:
+            problems.append(f"Строка {n}: нужно «тип | Название».")
+        elif parts[0].lower() not in MENU_TYPES:
+            problems.append(f"Строка {n}: неизвестный тип «{parts[0]}». Допустимые: " + ", ".join(MENU_TYPES) + ".")
+        elif parts[0].lower() == "link" and (len(parts) < 3 or not re.match(r"^https?://", parts[2])):
+            problems.append(f"Строка {n}: для ссылки третьим полем нужен адрес, начинающийся с https://.")
+    return problems
+
+
+def _price(text: str) -> float:
+    try:
+        return max(0.0, float(text.replace(" ", "").replace(" ", "").replace(",", ".").replace("₽", "") or 0))
+    except ValueError:
+        return 0.0
+
+
+def products() -> list[dict]:
+    """Товары и услуги магазина: «Название | цена | описание | категория | #id в Битрикс24»."""
+    out = []
+    for n, line in enumerate(setting("miniapp_products").splitlines()):
+        parts = [x.strip() for x in line.split("|")]
+        if not parts[0]:
+            continue
+        bitrix_id = 0
+        rest = parts[1:]
+        if rest and rest[-1].startswith("#") and rest[-1][1:].isdigit():
+            bitrix_id = int(rest[-1][1:])
+            rest = rest[:-1]
+        out.append({"key": f"p{n}", "name": parts[0], "price": _price(rest[0]) if rest else 0.0,
+                    "note": rest[1] if len(rest) > 1 else "", "category": rest[2] if len(rest) > 2 else "",
+                    "id": bitrix_id})
+    return out
+
+
+def products_to_lines(items: list[dict]) -> str:
+    lines = []
+    for it in items:
+        price = f"{it['price']:.2f}".rstrip("0").rstrip(".") if it.get("price") else "0"
+        lines.append(" | ".join([it["name"], price, it.get("note", ""), it.get("category", "")]
+                                + ([f"#{it['id']}"] if it.get("id") else [])))
+    return "\n".join(lines)
+
+
+def chat_mode() -> str:
+    return "platform" if setting("miniapp_chat_mode") == "platform" else "bitrix"
+
+
 def faq() -> list[tuple[str, str]]:
     blocks = re.split(r"\n\s*\n", setting("miniapp_faq").strip())
     out = []
@@ -205,12 +316,19 @@ def bitrix_connection():
     return conns[0] if conns else None
 
 
-def crm() -> BitrixCrm | None:
+def crm() -> BitrixCatalog | None:
     conn = bitrix_connection()
     if not conn:
         return None
     hook = conn.secret("webhook_url")
-    return BitrixCrm(hook, transport=TRANSPORTS["bitrix"]) if hook else None
+    return BitrixCatalog(hook, transport=TRANSPORTS["bitrix"]) if hook else None
+
+
+def deal_category() -> int | None:
+    try:
+        return int(setting("miniapp_deal_category")) or None
+    except ValueError:
+        return None
 
 
 def bitrix_assigned() -> int | None:
@@ -308,7 +426,17 @@ def _fmt_date(value: str) -> str:
         return value or "не указана"
 
 
+def order_items(b: dict) -> list[dict]:
+    try:
+        items = json.loads(b.get("items") or "[]")
+    except json.JSONDecodeError:
+        items = []
+    return [i for i in items if isinstance(i, dict) and i.get("name")]
+
+
 def booking_text(b: dict, for_client: bool = False) -> str:
+    if b.get("kind") == "order":
+        return order_text(b, for_client)
     lines = [f"Заявка №{b['id']}: {b['service']}"]
     if not for_client:
         lines.append(f"Клиент: {b['name']}, тел. {b['phone']}")
@@ -320,6 +448,27 @@ def booking_text(b: dict, for_client: bool = False) -> str:
         lines.append(f"Бассейн: {b['pool']}")
     lines.append(f"Желаемая дата: {_fmt_date(b.get('wish_date', ''))}, "
                  f"{TIME_TITLES.get(b.get('wish_time') or 'any', 'любое время').lower()}")
+    if b.get("comment"):
+        lines.append(f"Комментарий: {b['comment']}")
+    return "\n".join(lines)
+
+
+def order_text(b: dict, for_client: bool = False) -> str:
+    lines = [f"Заказ №{b['id']}"]
+    for it in order_items(b):
+        price = f" × {it['price']:g} ₽" if it.get("price") else ""
+        lines.append(f"- {it['name']}: {it.get('qty', 1)} шт.{price}")
+    if b.get("total"):
+        lines.append(f"Итого: {b['total']:g} ₽")
+    else:
+        lines.append("Сумму назовёт менеджер.")
+    if not for_client:
+        lines.append(f"Клиент: {b['name']}, тел. {b['phone']}")
+        if b.get("username"):
+            lines.append(f"MAX: @{b['username']} (id {b['max_id']})")
+    lines.append("Получение: " + ("самовывоз" if b.get("delivery") == "pickup" else "доставка"))
+    if b.get("address"):
+        lines.append(f"Адрес: {b['address']}")
     if b.get("comment"):
         lines.append(f"Комментарий: {b['comment']}")
     return "\n".join(lines)
@@ -361,8 +510,65 @@ async def create_booking(user: dict, form: dict) -> tuple[dict | None, dict]:
     return booking, {}
 
 
+def validate_order(form: dict) -> tuple[dict, dict]:
+    """Проверяет заказ из магазина: корзина по ключам товаров, имя, телефон, получение."""
+    errors: dict[str, str] = {}
+    clean = {k: str(form.get(k) or "").strip() for k in ("name", "phone", "address", "comment", "delivery")}
+    if len(clean["name"]) < 2:
+        errors["name"] = "Напишите, как к вам обращаться."
+    clean["phone"] = normalize_phone(clean["phone"])
+    if not clean["phone"]:
+        errors["phone"] = "Укажите телефон, по которому менеджер подтвердит заказ."
+    clean["delivery"] = "pickup" if clean["delivery"] == "pickup" else "delivery"
+    if clean["delivery"] == "delivery" and len(clean["address"]) < 5:
+        errors["address"] = "Укажите адрес доставки или выберите самовывоз."
+    catalog = {p["key"]: p for p in products()}
+    items: list[dict] = []
+    raw = form.get("items")
+    if isinstance(raw, list):
+        for row in raw:
+            if not isinstance(row, dict):
+                continue
+            prod = catalog.get(str(row.get("key") or ""))
+            try:
+                qty = int(row.get("qty") or 0)
+            except (TypeError, ValueError):
+                qty = 0
+            if prod and 1 <= qty <= 999:
+                items.append({"name": prod["name"], "price": prod["price"], "qty": qty, "id": prod["id"]})
+    if not items:
+        errors["items"] = "Корзина пуста — добавьте хотя бы один товар или услугу."
+    clean["items"] = items
+    clean["total"] = round(sum(i["price"] * i["qty"] for i in items), 2)
+    for key, limit in (("name", 100), ("address", 300), ("comment", 2000)):
+        clean[key] = clean[key][:limit]
+    return clean, errors
+
+
+async def create_order(user: dict, form: dict) -> tuple[dict | None, dict]:
+    clean, errors = validate_order(form)
+    if errors:
+        return None, errors
+    now = time.time()
+    summary = ", ".join(f"{i['name']} × {i['qty']}" for i in clean["items"])
+    order_id = db.execute(
+        "INSERT INTO miniapp_bookings(max_id, name, phone, address, service, comment, kind, items, total, delivery, "
+        "created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        (str(user["id"]), clean["name"], clean["phone"], clean["address"], summary[:200], clean["comment"], "order",
+         json.dumps(clean["items"], ensure_ascii=False), clean["total"], clean["delivery"], now, now))
+    touch_client(user, name=clean["name"], phone=clean["phone"], address=clean["address"])
+    order = get_booking(order_id)
+    assert order is not None
+    store.log_event("info", SECTION, f"Новый заказ №{order_id} на {clean['total']:g} ₽: {clean['name']}")
+    await push_to_bitrix(order)
+    order = get_booking(order_id) or order
+    await _notify_about(order, user)
+    return order, {}
+
+
 async def push_to_bitrix(booking: dict) -> bool:
-    """Создаёт лид в Битрикс24. Ошибка не ломает заявку — она сохраняется и видна в панели."""
+    """Создаёт лид (заявка, вопрос) или сделку (заказ) в Битрикс24.
+    Ошибка не ломает заявку — она сохраняется и видна в панели."""
     api = crm()
     if api is None:
         db.execute("UPDATE miniapp_bookings SET status = 'no_crm', updated_at = ? WHERE id = ?",
@@ -376,6 +582,14 @@ async def push_to_bitrix(booking: dict) -> bool:
             if contact_id:
                 db.execute("UPDATE miniapp_clients SET bitrix_contact_id = ? WHERE max_id = ?",
                            (contact_id, booking["max_id"]))
+        if booking.get("kind") == "order":
+            deal_id = await api.create_deal(
+                f"Заказ из MAX №{booking['id']}: {booking['name']}", contact_id=contact_id,
+                comments=order_text(booking), total=float(booking.get("total") or 0), rows=order_items(booking),
+                assigned=bitrix_assigned(), category_id=deal_category())
+            db.execute("UPDATE miniapp_bookings SET status = 'sent', bitrix_deal_id = ?, bitrix_error = '', "
+                       "updated_at = ? WHERE id = ?", (deal_id, time.time(), booking["id"]))
+            return True
         kind = "Вопрос" if booking.get("kind") == "question" else "Заявка"
         lead_id = await api.create_lead(
             f"{kind} из MAX: {booking['service']} — {booking['name']}", name=booking["name"],
@@ -422,12 +636,19 @@ async def notify_managers(text: str) -> int:
 
 
 async def _notify_about(booking: dict, user: dict) -> None:
-    status = ("Передана в Битрикс24 (лид №%s)." % booking["bitrix_lead_id"] if booking.get("bitrix_lead_id")
-              else "В Битрикс24 передать не удалось — см. панель, раздел «Сервис бассейнов».")
-    await notify_managers("Новая заявка из MAX\n" + booking_text(booking) + "\n" + status)
+    is_order = booking.get("kind") == "order"
+    if booking.get("bitrix_deal_id"):
+        status = "Передан в Битрикс24 (сделка №%s)." % booking["bitrix_deal_id"]
+    elif booking.get("bitrix_lead_id"):
+        status = "Передана в Битрикс24 (лид №%s)." % booking["bitrix_lead_id"]
+    else:
+        status = "В Битрикс24 передать не удалось — см. панель, раздел «Сервис бассейнов»."
+    await notify_managers(("Новый заказ из MAX\n" if is_order else "Новая заявка из MAX\n")
+                          + booking_text(booking) + "\n" + status)
     phone = setting("miniapp_phone")
     tail = f" Если срочно — звоните: {phone}." if phone else ""
-    await send_to_user(user["id"], f"Спасибо, {booking['name']}! Заявка принята.\n{booking_text(booking, True)}\n"
+    what = "Заказ принят" if is_order else "Заявка принята"
+    await send_to_user(user["id"], f"Спасибо, {booking['name']}! {what}.\n{booking_text(booking, True)}\n"
                                    f"Менеджер свяжется с вами по телефону {booking['phone']}.{tail}")
 
 
@@ -437,38 +658,55 @@ STATUS_TITLES = {"new": "Принята", "sent": "Передана менедж
                  "done": "Выполнена", "cancelled": "Отменена"}
 ADMIN_STATUS_TITLES = {"new": "Новая", "sent": "В Битрикс24", "error": "Ошибка Битрикс24",
                        "no_crm": "Без Битрикс24", "done": "Выполнена", "cancelled": "Отменена"}
-_status_cache: dict[str, Any] = {"ts": 0.0, "names": {}, "leads": {}}
+_status_cache: dict[str, Any] = {"ts": 0.0, "names": {}, "leads": {}, "deal_names": {}, "deals": {}}
 
 
 async def attach_statuses(bookings: list[dict], admin: bool = False) -> list[dict]:
     """Дописывает каждой заявке понятный статус; для лидов берёт стадию из Битрикс24 (кэш на минуту)."""
     titles = ADMIN_STATUS_TITLES if admin else STATUS_TITLES
-    ids = [b["bitrix_lead_id"] for b in bookings if b.get("bitrix_lead_id")]
+    lead_ids = [b["bitrix_lead_id"] for b in bookings if b.get("bitrix_lead_id")]
+    deal_ids = [b["bitrix_deal_id"] for b in bookings if b.get("bitrix_deal_id")]
     api = crm()
-    if api and ids:
+    if api and (lead_ids or deal_ids):
         now = time.time()
-        missing = [i for i in ids if i not in _status_cache["leads"]]
+        missing = ([i for i in lead_ids if i not in _status_cache["leads"]]
+                   + [i for i in deal_ids if i not in _status_cache["deals"]])
         if now - _status_cache["ts"] > 60 or missing:
             try:
-                if not _status_cache["names"] or now - _status_cache["ts"] > 3600:
+                if lead_ids and (not _status_cache["names"] or now - _status_cache["ts"] > 3600):
                     _status_cache["names"] = await api.lead_statuses()
-                _status_cache["leads"].update(await api.leads_status(ids))
+                if deal_ids and (not _status_cache["deal_names"] or now - _status_cache["ts"] > 3600):
+                    _status_cache["deal_names"] = await api.deal_statuses()
+                if lead_ids:
+                    _status_cache["leads"].update(await api.leads_status(lead_ids))
+                if deal_ids:
+                    _status_cache["deals"].update(await api.deals_stage(deal_ids))
                 _status_cache["ts"] = now
             except CrmError as exc:
-                log.warning("Статусы лидов не получены: %s", exc.message)
+                log.warning("Статусы из Битрикс24 не получены: %s", exc.message)
     for b in bookings:
         b["status_title"] = titles.get(b["status"], b["status"])
-        lead = b.get("bitrix_lead_id")
-        stage = _status_cache["leads"].get(lead) if lead else None
-        if stage:
-            b["stage"] = _status_cache["names"].get(stage, stage)
-            b["status_title"] = b["stage"] if admin or stage not in ("NEW",) else "Принята"
-            if stage == "CONVERTED":
-                b["status_title"] = "Выполнена"
-            elif stage == "JUNK":
-                b["status_title"] = "Отменена"
+        if b.get("kind") == "order" and not admin:  # заказ — мужского рода
+            b["status_title"] = {"Принята": "Принят", "Передана менеджеру": "Передан менеджеру",
+                                 "Выполнена": "Выполнен", "Отменена": "Отменён"}.get(b["status_title"], b["status_title"])
+        if b["status"] in ("done", "cancelled"):
+            pass
+        elif b.get("bitrix_deal_id"):
+            stage = _status_cache["deals"].get(b["bitrix_deal_id"])
+            if stage:
+                b["stage"] = _status_cache["deal_names"].get(stage, stage)
+                tail = stage.rsplit(":", 1)[-1]
+                b["status_title"] = ("Выполнен" if tail == "WON" else "Отменён" if tail.startswith("LOSE")
+                                     else b["stage"] if admin or tail != "NEW" else "Принят")
+        elif b.get("bitrix_lead_id"):
+            stage = _status_cache["leads"].get(b["bitrix_lead_id"])
+            if stage:
+                b["stage"] = _status_cache["names"].get(stage, stage)
+                b["status_title"] = ("Выполнена" if stage == "CONVERTED" else "Отменена" if stage == "JUNK"
+                                     else b["stage"] if admin or stage != "NEW" else "Принята")
         b["date_title"] = _fmt_date(b.get("wish_date", ""))
         b["time_title"] = TIME_TITLES.get(b.get("wish_time") or "any", "Любое время")
+        b["items_list"] = order_items(b)
     return bookings
 
 
@@ -648,6 +886,8 @@ async def handle_update(update: dict) -> str:
     api = max_api()
     if not api or not u["user_id"]:
         return "ignored"
+    if chat_mode() == "bitrix":
+        return "ignored:bitrix"  # чат ведёт Битрикс24 через открытые линии — платформа не вмешивается
     user = {"id": str(u["user_id"]), "name": u["user_name"], "username": u["username"]}
     touch_client(user)
     if u["type"] in ("bot_started", "bot_added") or u["text"].lower().startswith("/start"):
@@ -690,6 +930,10 @@ async def subscribe_webhook() -> str:
     api = max_api()
     if api is None:
         raise MaxError("Бот MAX не подключён.", "Сначала добавьте подключение «Бот MAX» в разделе «Подключения».")
+    if chat_mode() == "bitrix":
+        raise MaxError("Чат бота ведёт Битрикс24 (открытые линии).",
+                       "Подписка платформы отняла бы сообщения у Битрикс24. Чтобы отвечал помощник платформы, "
+                       "переключите «Кто отвечает в чате бота» в настройках ниже.")
     url = webhook_url()
     if not url:
         raise MaxError("Не указан внешний адрес панели.", "Заполните «Внешний адрес панели» в «Настройках»: "
@@ -712,6 +956,23 @@ async def subscribe_webhook() -> str:
     return f"Бот @{username} подписан. Теперь он отвечает на сообщения и показывает кнопку приложения."
 
 
+async def unsubscribe_webhook() -> str:
+    """Снимает подписку платформы — чтобы события бота снова получал Битрикс24."""
+    api = max_api()
+    if api is None:
+        raise MaxError("Бот MAX не подключён.")
+    removed = 0
+    want = webhook_url()
+    for sub in await api.subscriptions():
+        url = str(sub.get("url") or "")
+        if url and (url == want or url.endswith("/max/webhook")):
+            await api.unsubscribe(url)
+            removed += 1
+    store.set_setting("miniapp_subscribed_url", "")
+    store.log_event("info", SECTION, f"Подписка бота MAX на панель снята ({removed})")
+    return "Подписка снята: события бота платформа больше не получает." if removed else "Подписки платформы не было."
+
+
 async def subscription_state() -> dict:
     """Что показать в панели: подписан ли бот и на какой адрес."""
     api = max_api()
@@ -723,6 +984,14 @@ async def subscription_state() -> dict:
         return {"ok": False, "text": exc.message, "action": exc.action}
     urls = [str(s.get("url") or "") for s in subs]
     want = webhook_url()
+    if chat_mode() == "bitrix":
+        mine = [u for u in urls if u == want or u.endswith("/max/webhook")]
+        if mine:
+            return {"ok": False, "subscribed": True,
+                    "text": "Платформа подписана на события бота, хотя чат ведёт Битрикс24: сообщения клиентов "
+                            "до открытых линий не доходят.", "action": "Нажмите «Снять подписку»."}
+        return {"ok": True, "text": "Чат бота ведёт Битрикс24 (открытые линии). Платформа только отправляет "
+                                    "уведомления о заказах и заявках через бота."}
     if want and want in urls:
         return {"ok": True, "text": f"Бот подписан на {want}."}
     if urls:

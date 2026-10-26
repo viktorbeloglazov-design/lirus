@@ -103,6 +103,11 @@ async def api_bootstrap(request: Request, user: dict) -> Response:
         "hours": service.setting("miniapp_hours"),
         "phone": service.setting("miniapp_phone"),
         "services": service.services(),
+        "menu": service.menu(),
+        "products": service.products(),
+        "shop_note": service.setting("miniapp_shop_note"),
+        "chat_mode": service.chat_mode(),
+        "bot_username": service.setting("miniapp_bot_username"),
         "times": [{"key": k, "title": t} for k, t in service.TIME_SLOTS],
         "faq": [{"q": q, "a": a} for q, a in service.faq()],
         "bookings": _public(bookings),
@@ -113,7 +118,21 @@ async def api_bootstrap(request: Request, user: dict) -> Response:
 def _public(bookings: list[dict]) -> list[dict]:
     return [{"id": b["id"], "service": b["service"], "status": b["status_title"], "date": b["date_title"],
              "time": b["time_title"], "kind": b.get("kind", "booking"), "comment": b.get("comment", ""),
+             "items": b.get("items_list", []), "total": b.get("total") or 0, "delivery": b.get("delivery", ""),
              "created_at": b["created_at"]} for b in bookings if b.get("kind") != "question"]
+
+
+@api
+async def api_order(request: Request, user: dict) -> Response:
+    form = await _json(request)
+    order, errors = await service.create_order(user, form)
+    if errors:
+        return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+    orders = await service.attach_statuses([order])
+    total = f" на {order['total']:g} ₽" if order["total"] else ""
+    return JSONResponse({"ok": True, "booking": _public(orders)[0],
+                         "message": f"Заказ №{order['id']}{total} принят. Менеджер подтвердит его по телефону "
+                                    f"{order['phone']}."})
 
 
 @api
@@ -188,6 +207,8 @@ async def _panel_ctx(request: Request, errors: dict | None = None, submitted: di
         "app_url": service.app_url(), "webhook_url": service.webhook_url(), "state": state,
         "public_url": store.get_setting("public_url"),
         "managers": service.manager_ids(), "bot_username": service.setting("miniapp_bot_username"),
+        "menu_types": service.MENU_TYPES, "chat_mode": service.chat_mode(),
+        "products_count": len(service.products()), "menu_count": len(service.menu()),
         "admin": can(request.state.user, "settings"),
     }
 
@@ -202,14 +223,23 @@ async def panel(request: Request) -> Response:
     form = request.state.form
     values = {k: str(form.get(k, "")).strip() for k in
               ("miniapp_title", "miniapp_about", "miniapp_services", "miniapp_hours", "miniapp_phone",
-               "miniapp_faq", "miniapp_bitrix_conn", "miniapp_bitrix_assigned", "miniapp_manager_max_ids")}
+               "miniapp_faq", "miniapp_bitrix_conn", "miniapp_bitrix_assigned", "miniapp_manager_max_ids",
+               "miniapp_menu", "miniapp_products", "miniapp_shop_note", "miniapp_deal_category")}
     values["miniapp_enabled"] = "1" if form.get("miniapp_enabled") else "0"
     values["miniapp_use_claude"] = "1" if form.get("miniapp_use_claude") else "0"
+    values["miniapp_chat_mode"] = "platform" if form.get("miniapp_chat_mode") == "platform" else "bitrix"
     errors: dict[str, str] = {}
     if not values["miniapp_title"]:
         errors["miniapp_title"] = "Название не может быть пустым."
     if not any(line.strip() for line in values["miniapp_services"].splitlines()):
         errors["miniapp_services"] = "Нужна хотя бы одна услуга — по строке на услугу."
+    problems = service.menu_problems(values["miniapp_menu"])
+    if problems:
+        errors["miniapp_menu"] = " ".join(problems)
+    elif not any(line.strip() for line in values["miniapp_menu"].splitlines()):
+        errors["miniapp_menu"] = "Нужен хотя бы один пункт меню."
+    if values["miniapp_deal_category"] and not values["miniapp_deal_category"].isdigit():
+        errors["miniapp_deal_category"] = "ID воронки — число (видно в адресе страницы сделок Битрикс24)."
     if values["miniapp_bitrix_assigned"] and not values["miniapp_bitrix_assigned"].isdigit():
         errors["miniapp_bitrix_assigned"] = "ID ответственного в Битрикс24 — число (видно в адресе его профиля)."
     if errors:
@@ -234,13 +264,48 @@ async def subscribe(request: Request) -> Response:
 
 
 @page("settings")
+async def unsubscribe(request: Request) -> Response:
+    from ..main import redirect
+    try:
+        auth.flash(request, "ok", await service.unsubscribe_webhook())
+    except MaxError as exc:
+        auth.flash(request, "error", f"{exc.message} {exc.action}".strip())
+    return redirect("/pool-service")
+
+
+@page("settings")
+async def import_products(request: Request) -> Response:
+    """Загружает товары каталога CRM Битрикс24 в список магазина (заменяет список)."""
+    from ..main import redirect
+    from .crm import CrmError
+    api = service.crm()
+    if api is None:
+        auth.flash(request, "error", "Битрикс24 не подключён — загружать товары неоткуда.")
+        return redirect("/pool-service#shop")
+    try:
+        items = await api.list_products()
+    except CrmError as exc:
+        auth.flash(request, "error", f"{exc.message} {exc.action}".strip())
+        return redirect("/pool-service#shop")
+    if not items:
+        auth.flash(request, "warn", "В каталоге CRM Битрикс24 нет активных товаров. Список магазина не изменён.")
+        return redirect("/pool-service#shop")
+    service.save_settings({"miniapp_products": service.products_to_lines(items)})
+    store.log_event("info", service.SECTION, f"Товары магазина загружены из Битрикс24: {len(items)}",
+                    user=request.state.user["login"])
+    auth.flash(request, "ok", f"Загружено товаров из Битрикс24: {len(items)}. Проверьте цены и описания ниже.")
+    return redirect("/pool-service#shop")
+
+
+@page("settings")
 async def resend(request: Request) -> Response:
     from ..main import redirect
     booking = service.get_booking(int(request.path_params["booking_id"]))
     if booking is None:
         auth.flash(request, "error", "Заявка не найдена.")
     elif await service.push_to_bitrix(booking):
-        auth.flash(request, "ok", f"Заявка №{booking['id']} передана в Битрикс24.")
+        auth.flash(request, "ok", f"{'Заказ' if booking.get('kind') == 'order' else 'Заявка'} №{booking['id']} "
+                                  f"передан{'' if booking.get('kind') == 'order' else 'а'} в Битрикс24.")
     else:
         fresh = service.get_booking(booking["id"]) or booking
         auth.flash(request, "error", fresh.get("bitrix_error") or "Битрикс24 не подключён.")
@@ -262,11 +327,14 @@ def routes() -> list[Route]:
         Route("/max/app", app_page),
         Route("/max/api/bootstrap", api_bootstrap),
         Route("/max/api/booking", api_booking, methods=["POST"]),
+        Route("/max/api/order", api_order, methods=["POST"]),
         Route("/max/api/bookings", api_bookings),
         Route("/max/api/ask", api_ask, methods=["POST"]),
         Route("/max/webhook", webhook, methods=["POST"]),
         Route("/pool-service", panel, methods=["GET", "POST"]),
         Route("/pool-service/subscribe", subscribe, methods=["POST"]),
+        Route("/pool-service/unsubscribe", unsubscribe, methods=["POST"]),
+        Route("/pool-service/import-products", import_products, methods=["POST"]),
         Route("/pool-service/bookings/{booking_id:int}/resend", resend, methods=["POST"]),
         Route("/pool-service/bookings/{booking_id:int}/status", set_status, methods=["POST"]),
     ]

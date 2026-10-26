@@ -15,7 +15,7 @@
     <div class="top-title"><b id="title">{{ title }}</b><small id="company">{{ company }}</small></div>
     <a id="call" class="call" href="#" hidden>Позвонить</a>
   </header>
-  {% if preview %}<div class="note">Предпросмотр из панели: вы видите приложение как клиент. Заявки отсюда попадают в список как тестовые.</div>{% endif %}
+  {% if preview %}<div class="note">Предпросмотр из панели: вы видите приложение как клиент. Заказы и заявки отсюда попадают в список как тестовые.</div>{% endif %}
 
   <main id="screen-loading" class="screen"><div class="spinner"></div><p class="muted center">Загружаем…</p></main>
 
@@ -28,21 +28,46 @@
     <section class="card hero">
       <h1>Здравствуйте, <span id="user-name"></span>!</h1>
       <p id="about" class="muted"></p>
-      <p class="muted" id="hours"></p>
     </section>
-    <div class="big-buttons">
-      <button class="big primary" data-go="book">Записаться на сервис</button>
-      <button class="big" data-go="chat">Задать вопрос</button>
-      <button class="big" data-go="list">Мои заявки <span class="badge" id="count-badge" hidden></span></button>
+    <div class="big-buttons" id="menu"></div>
+  </main>
+
+  <main id="screen-shop" class="screen" hidden>
+    <h1 id="shop-title">Купить химию и услуги</h1>
+    <div class="chips" id="categories"></div>
+    <div id="products"></div>
+    <p class="muted small" id="shop-note"></p>
+    <div class="cart-bar" id="cart-bar" hidden>
+      <span id="cart-summary"></span>
+      <button class="primary" data-go="cart">Оформить</button>
     </div>
-    <section class="card" id="faq-card" hidden>
-      <h2>Частые вопросы</h2>
-      <div id="faq"></div>
-    </section>
+  </main>
+
+  <main id="screen-cart" class="screen" hidden>
+    <h1>Ваш заказ</h1>
+    <div id="cart-items" class="card"></div>
+    <form id="order-form" class="form" novalidate>
+      <div class="field"><label for="o-name">Как к вам обращаться</label>
+        <input id="o-name" name="name" autocomplete="name" maxlength="100"><div class="error" data-for="name"></div></div>
+      <div class="field"><label for="o-phone">Телефон для подтверждения</label>
+        <input id="o-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 900 000-00-00"><div class="error" data-for="phone"></div></div>
+      <div class="field"><label>Как получить</label>
+        <div class="choices row">
+          <label class="choice on" id="d-delivery"><input type="radio" name="delivery" value="delivery" checked><span><b>Доставка</b></span></label>
+          <label class="choice" id="d-pickup"><input type="radio" name="delivery" value="pickup"><span><b>Самовывоз</b></span></label>
+        </div></div>
+      <div class="field" id="o-address-field"><label for="o-address">Адрес доставки</label>
+        <input id="o-address" name="address" autocomplete="street-address" maxlength="300" placeholder="Город, улица, дом"><div class="error" data-for="address"></div></div>
+      <div class="field"><label for="o-comment">Комментарий</label>
+        <textarea id="o-comment" name="comment" rows="2" maxlength="2000" placeholder="Удобное время, как проехать, пожелания"></textarea></div>
+      <div class="error" data-for="items"></div><div class="error" data-for="form"></div>
+      <button class="primary wide big" type="submit" id="order-submit">Отправить заказ</button>
+      <p class="muted small">Менеджер подтвердит заказ, сумму и срок по телефону. Подтверждение придёт сообщением от бота.</p>
+    </form>
   </main>
 
   <main id="screen-book" class="screen" hidden>
-    <h1>Записаться на сервис</h1>
+    <h1 id="book-title">Записаться на сервис</h1>
     <form id="book-form" class="form" novalidate>
       <div class="field"><label>Что нужно сделать</label><div id="services" class="choices"></div>
         <div class="error" data-for="service"></div></div>
@@ -69,17 +94,16 @@
   <main id="screen-done" class="screen" hidden>
     <div class="card center">
       <div class="check">✓</div>
-      <h2>Заявка принята</h2>
+      <h2 id="done-title">Принято</h2>
       <p id="done-text"></p>
-      <button class="primary wide" data-go="list">Мои заявки</button>
+      <button class="primary wide" data-go="list">Мои заказы и заявки</button>
       <button class="wide" data-go="home">На главную</button>
     </div>
   </main>
 
   <main id="screen-list" class="screen" hidden>
-    <h1>Мои заявки</h1>
+    <h1 id="list-title">Мои заказы и заявки</h1>
     <div id="bookings"></div>
-    <button class="primary wide big" data-go="book">Новая заявка</button>
   </main>
 
   <main id="screen-chat" class="screen chat-screen" hidden>
@@ -90,12 +114,32 @@
     </form>
   </main>
 
-  <nav class="tabs" id="tabs" hidden>
-    <button data-go="home" class="active">Главная</button>
-    <button data-go="book">Запись</button>
-    <button data-go="chat">Вопрос</button>
-    <button data-go="list">Заявки</button>
-  </nav>
+  <main id="screen-botchat" class="screen" hidden>
+    <div class="card center">
+      <h2>Напишите нам в чат</h2>
+      <p class="muted">Вопрос можно задать прямо в чате с ботом — ответит менеджер.</p>
+      <p class="muted" id="botchat-hours"></p>
+      <button class="primary wide big" id="botchat-open">Перейти в чат</button>
+      <a class="button wide" id="botchat-link" href="#" hidden>Открыть чат с ботом</a>
+    </div>
+  </main>
+
+  <main id="screen-contacts" class="screen" hidden>
+    <h1 id="contacts-title">Контакты</h1>
+    <section class="card">
+      <p id="c-phone"></p>
+      <p id="c-hours" class="muted"></p>
+      <p id="c-about" class="muted"></p>
+      <a class="button primary wide" id="c-call" href="#" hidden>Позвонить</a>
+    </section>
+  </main>
+
+  <main id="screen-faq" class="screen" hidden>
+    <h1 id="faq-title">Частые вопросы</h1>
+    <section class="card"><div id="faq"></div></section>
+  </main>
+
+  <nav class="tabs" id="tabs" hidden></nav>
 </div>
 </body>
 </html>
