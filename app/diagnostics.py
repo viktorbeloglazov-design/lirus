@@ -166,7 +166,7 @@ SERVICES = [
     ("Ozon", "https://api-seller.ozon.ru/", False, True),
     ("Яндекс Маркет", "https://api.partner.market.yandex.ru/", False, False),
     ("Google", "https://oauth2.googleapis.com/", True, True),
-    ("MAX", "https://platform-api.max.ru/", False, False),
+    ("MAX", "https://platform-api2.max.ru/", False, False),
     ("Telegram", "https://api.telegram.org/", True, False),
 ]
 

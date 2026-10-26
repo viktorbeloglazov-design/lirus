@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Сервис бассейнов{% endblock %}
+{% macro err(name) %}{% if errors.get(name) %}<div class="error-text">{{ errors[name] }}</div>{% endif %}{% endmacro %}
+{% block content %}
+<div class="head-row">
+  <h1>Сервис бассейнов — мини-приложение в MAX</h1>
+  {% if app_url %}<a class="button" href="/max/app" target="_blank" rel="noopener">Открыть предпросмотр</a>{% endif %}
+</div>
+<p class="muted">Клиент открывает приложение в MAX, задаёт вопросы помощнику и записывается на сервис. Заявки попадают в Битрикс24 лидами, менеджеры получают сообщение от бота.</p>
+
+<div class="cards">
+  <section class="card">
+    <h2>Шаг 1. Бот MAX</h2>
+    {% if bot %}
+    <p>Подключён: <b>{{ bot.name }}</b>{% if bot_username %} (@{{ bot_username }}){% endif %}.</p>
+    <p class="{{ 'muted' if state.ok else 'error-text' }}">{{ state.text }}{% if state.action %} {{ state.action }}{% endif %}</p>
+    {% if admin %}
+    <form method="post" action="/pool-service/subscribe" data-busy="Подписываем бота…">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="primary" type="submit">{{ 'Подписать заново' if state.ok else 'Подписать бота' }}</button>
+    </form>
+    {% endif %}
+    {% else %}
+    <p class="error-text">Бот MAX не подключён.</p>
+    <a class="button" href="/connections/new?type=max_bot">Подключить бота MAX</a>
+    {% endif %}
+    {% if not public_url %}<p class="error-text">Не указан «Внешний адрес панели» — без него MAX не достучится до сервера. <a href="/settings">Заполнить в настройках</a>.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Шаг 2. Адрес приложения для MAX</h2>
+    {% if app_url %}
+    <p>Укажите этот адрес в кабинете MAX для партнёров, в настройках бота (раздел про мини-приложение / веб-приложение):</p>
+    <ul class="copy-list"><li><code>{{ app_url }}</code><button class="ghost small" type="button" data-copy="{{ app_url }}">Копировать</button></li></ul>
+    <p class="muted">Ссылка для клиентов (сайт, визитки, рассылка): {% if bot_username %}<code>https://max.ru/{{ bot_username }}</code>{% else %}появится после подписки бота{% endif %}.</p>
+    {% else %}
+    <p class="muted">Появится, когда в «Настройках» будет указан внешний адрес панели.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Шаг 3. Битрикс24 и ответы</h2>
+    <p>Битрикс24: {% if bitrix %}<b>{{ bitrix.name }}</b> — заявки создаются лидами.{% else %}<span class="error-text">не подключён</span> — заявки будут только в этом разделе. <a href="/connections/new?type=bitrix24">Подключить</a>.{% endif %}</p>
+    <p>Помощник: {% if claude and s.miniapp_use_claude == '1' %}отвечает <b>Claude</b> по сведениям ниже.{% else %}Claude не используется — ответы только из «Частых вопросов», остальное уходит менеджеру.{% endif %}</p>
+    <p>Уведомления в MAX получают: {% if managers %}{{ managers | join(', ') }}{% else %}<span class="error-text">никто</span> — укажите ID менеджера ниже или привяжите MAX сотруднику с ролью менеджера.{% endif %}</p>
+  </section>
+</div>
+
+<section class="card" id="bookings">
+  <h2>Заявки ({{ bookings | length }})</h2>
+  {% if bookings %}
+  <table class="table">
+    <thead><tr><th>№</th><th>Когда</th><th>Клиент</th><th>Что</th><th>Дата / время</th><th>Статус</th>{% if admin %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for b in bookings %}
+    <tr>
+      <td>{{ b.id }}</td>
+      <td class="nowrap">{{ b.created_at | dt }}</td>
+      <td>{{ b.name }}{% if b.phone %}<small class="muted block">{{ b.phone }}</small>{% endif %}{% if b.username %}<small class="muted block">@{{ b.username }}</small>{% endif %}</td>
+      <td>{{ b.service }}{% if b.address %}<small class="muted block">{{ b.address }}</small>{% endif %}{% if b.pool %}<small class="muted block">{{ b.pool }}</small>{% endif %}{% if b.comment %}<small class="muted block">{{ b.comment }}</small>{% endif %}</td>
+      <td class="nowrap">{{ b.date_title }}<small class="muted block">{{ b.time_title }}</small></td>
+      <td>{{ b.status_title }}{% if b.bitrix_lead_id %}<small class="muted block">лид №{{ b.bitrix_lead_id }}</small>{% endif %}{% if b.bitrix_error %}<small class="error-text block">{{ b.bitrix_error }}</small>{% endif %}</td>
+      {% if admin %}<td class="nowrap">
+        {% if not b.bitrix_lead_id and bitrix %}<form method="post" action="/pool-service/bookings/{{ b.id }}/resend"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost small" type="submit">В Битрикс24</button></form>{% endif %}
+        {% if b.status not in ('done', 'cancelled') %}<form method="post" action="/pool-service/bookings/{{ b.id }}/status"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="status" value="done"><button class="ghost small" type="submit">Выполнена</button></form>{% endif %}
+      </td>{% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Заявок пока нет. Откройте предпросмотр и отправьте тестовую заявку — она появится здесь.</p>
+  {% endif %}
+</section>
+
+{% if admin %}
+<form class="card form" method="post" action="/pool-service" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <h2>Настройки приложения</h2>
+  <label class="check"><input type="checkbox" name="miniapp_enabled" value="1" {{ 'checked' if s.miniapp_enabled == '1' }}> Приложение включено</label>
+  <div class="field {{ 'has-error' if errors.miniapp_title }}"><label for="miniapp_title">Название</label>
+    <input id="miniapp_title" name="miniapp_title" value="{{ s.miniapp_title }}">{{ err('miniapp_title') }}</div>
+  <div class="field"><label for="miniapp_phone">Телефон для клиентов</label>
+    <input id="miniapp_phone" name="miniapp_phone" value="{{ s.miniapp_phone }}" placeholder="+7 900 000-00-00">
+    <div class="hint">Показывается в приложении кнопкой «Позвонить» и в ответах помощника.</div></div>
+  <div class="field"><label for="miniapp_hours">Часы работы</label>
+    <input id="miniapp_hours" name="miniapp_hours" value="{{ s.miniapp_hours }}"></div>
+  <div class="field"><label for="miniapp_about">О компании — для клиентов и помощника</label>
+    <textarea id="miniapp_about" name="miniapp_about" rows="5">{{ s.miniapp_about }}</textarea>
+    <div class="hint">Чем занимаетесь, что входит в обслуживание, как считается цена. Помощник отвечает только по этим сведениям и «Частым вопросам».</div></div>
+  <div class="field {{ 'has-error' if errors.miniapp_services }}"><label for="miniapp_services">Услуги — по одной в строке</label>
+    <textarea id="miniapp_services" name="miniapp_services" rows="8">{{ s.miniapp_services }}</textarea>{{ err('miniapp_services') }}
+    <div class="hint">Формат: «Название | пояснение». Пояснение можно не писать.</div></div>
+  <div class="field"><label for="miniapp_faq">Частые вопросы</label>
+    <textarea id="miniapp_faq" name="miniapp_faq" rows="12">{{ s.miniapp_faq }}</textarea>
+    <div class="hint">Вопрос — первой строкой, ответ — следующими. Между вопросами пустая строка.</div></div>
+
+  <h2>Битрикс24</h2>
+  <div class="field"><label for="miniapp_bitrix_conn">Подключение</label>
+    <select id="miniapp_bitrix_conn" name="miniapp_bitrix_conn">
+      <option value="">Первое подключённое</option>
+      {% for c in bitrix_list %}<option value="{{ c.id }}" {{ 'selected' if s.miniapp_bitrix_conn == c.id|string }}>{{ c.name }}</option>{% endfor %}
+    </select></div>
+  <div class="field {{ 'has-error' if errors.miniapp_bitrix_assigned }}"><label for="miniapp_bitrix_assigned">Ответственный за лиды — ID сотрудника в Битрикс24</label>
+    <input id="miniapp_bitrix_assigned" name="miniapp_bitrix_assigned" value="{{ s.miniapp_bitrix_assigned }}" inputmode="numeric" placeholder="например, 7">{{ err('miniapp_bitrix_assigned') }}
+    <div class="hint">Откройте в Битрикс24 профиль сотрудника — число в конце адреса страницы. Пусто — ответственный по правилам Битрикс24.</div></div>
+
+  <h2>Уведомления и помощник</h2>
+  <div class="field"><label for="miniapp_manager_max_ids">Кому писать о новых заявках — ID в MAX через запятую</label>
+    <input id="miniapp_manager_max_ids" name="miniapp_manager_max_ids" value="{{ s.miniapp_manager_max_ids }}" placeholder="123456789, 987654321">
+    <div class="hint">Пусто — всем сотрудникам с ролью менеджера и выше, у кого в карточке указан MAX. Узнать свой ID: написать боту, затем «Сценарии → узел MAX → Получить сообщения».</div></div>
+  <label class="check"><input type="checkbox" name="miniapp_use_claude" value="1" {{ 'checked' if s.miniapp_use_claude == '1' }}> Отвечать на вопросы через ядро Claude</label>
+  <div class="actions"><button class="primary" type="submit">Сохранить</button></div>
+</form>
+{% endif %}
+{% endblock %}

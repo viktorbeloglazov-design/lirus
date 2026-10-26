@@ -8,7 +8,7 @@ from .base import (OK, WARN, CheckContext, CheckResult, ConnectorError, Connecto
 
 # ----------------------------------------------------------------------- MAX
 
-MAX_API = "https://platform-api.max.ru"
+MAX_API = "https://platform-api2.max.ru"  # старый platform-api.max.ru отключён летом 2026
 MAX_ACTION = (
     "Откройте в MAX чат с @MasterBot (платформа для партнёров: business.max.ru → «Чат-боты»), "
     "выберите своего бота, скопируйте токен заново и вставьте сюда."

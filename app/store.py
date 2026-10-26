@@ -77,6 +77,7 @@ SECTIONS = {
     "settings": "Настройки",
     "backup": "Резервные копии",
     "workflows": "Сценарии",
+    "miniapp": "Мини-приложение MAX",
     "system": "Система",
 }
 

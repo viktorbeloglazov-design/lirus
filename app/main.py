@@ -30,6 +30,7 @@ from .connectors import BY_KEY, CATEGORY_ORDER, TYPES, context_for, get_type, ru
 from .connectors import google as g
 from .connectors.base import ERROR, OK, STATUS_TITLES, WARN, ConnectorError, normalize_url
 from . import onec_views
+from .miniapp import views as miniapp_views
 from .workflows import views as wf_views
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ NAV = [
     ("connections", "/connections", "Подключения"),
     ("workflows", "/workflows", "Сценарии"),
     ("workflows", "/executions", "Выполнения"),
+    ("pool_service", "/pool-service", "Сервис бассейнов"),
     ("employees", "/employees", "Сотрудники"),
     ("testing", "/testing", "Тестирование"),
     ("journal", "/journal", "Журнал"),
@@ -947,6 +949,9 @@ def startup() -> None:
     from .workflows import storage as wf_storage
 
     wf_storage.init()
+    from .miniapp import service as miniapp_service
+
+    miniapp_service.init()
     if not config.CONTROL_TOKEN_PATH.exists():
         config.CONTROL_TOKEN_PATH.write_text(pysecrets.token_urlsafe(32))
 
@@ -1000,6 +1005,7 @@ def create_app() -> Starlette:
         Route("/settings/restart", settings_restart, methods=["POST"]),
         *wf_views.routes(),
         *onec_views.routes(),
+        *miniapp_views.routes(),
         Mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static"),
     ]
     return Starlette(

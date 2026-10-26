@@ -43,6 +43,7 @@ PERMISSIONS: dict[str, set[str]] = {
     "journal": {"admin", "director"},
     "connections": {"admin"},
     "workflows": {"admin"},
+    "pool_service": {"admin", "director", "manager"},
     "employees": {"admin"},
     "testing": {"admin"},
     "settings": {"admin"},

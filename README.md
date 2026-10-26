@@ -15,6 +15,8 @@
 2. Коннектор к 1С с выгрузкой в локальную базу, ТЗ программисту 1С на расширение с HTTP-сервисами.
 3. Ядро на Claude.
 4. Бот MAX (запасной — Telegram).
+   - Мини-приложение в MAX для клиентов: вопросы помощнику, запись на сервис бассейнов,
+     заявки лидами в Битрикс24, уведомления менеджерам. ← сделано
 5. Маркетплейсы, Битрикс24, почта.
 6. Действия с записью (задачи, письма, заказы) с подтверждением в боте.
 
@@ -36,12 +38,13 @@ app/
   tls.py           сертификат HTTPS (.pfx или .crt+.key)
   runtime.py       перезапуск из панели
   connectors/      типы подключений: поля формы, подсказки, проверка связи
+  miniapp/         мини-приложение MAX: клиент Bot API, проверка initData, Битрикс24, ответы, вебхук
   templates/ static/
 run.py             serve | start | stop | status | backup | restore | reset-admin | set-port | setup
 tools/make_bat.py  генерирует .bat-файлы (UTF-8, CRLF, chcp 65001)
 tools/make_command.py  генерирует .command-файлы для Mac (bash 3.2, LF, права 755)
 tools/build_release.py  архивы для Windows и Mac с библиотеками внутри
-tests/             test_connectors.py (подменённые ответы), scenarios.py (живой сервер), fake_1c.py
+tests/             test_connectors.py, test_miniapp.py (подменённые ответы), scenarios.py (живой сервер), fake_1c.py
 ```
 
 Новый тип подключения — один объект `ConnectorType` в `app/connectors/`: список `Field`,
@@ -55,6 +58,7 @@ tests/             test_connectors.py (подменённые ответы), sce
 python -m venv venv && venv/bin/pip install -r requirements.txt
 venv/bin/python run.py serve
 venv/bin/python tests/test_connectors.py
+venv/bin/python tests/test_miniapp.py
 venv/bin/python tests/fake_1c.py 8091 https & venv/bin/python tests/fake_1c.py 8092 &
 venv/bin/python tests/scenarios.py      # на чистой базе
 ```

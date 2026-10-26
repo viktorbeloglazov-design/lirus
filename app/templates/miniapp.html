@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ title }}{% if company %} — {{ company }}{% endif %}</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/miniapp.css?v={{ APP_VERSION }}">
+<script src="https://st.max.ru/js/max-web-app.js"></script>
+<script src="/static/miniapp.js?v={{ APP_VERSION }}" defer></script>
+</head>
+<body>
+<div id="app" class="app" data-preview="{{ '1' if preview else '0' }}">
+  <header class="top">
+    <div class="top-title"><b id="title">{{ title }}</b><small id="company">{{ company }}</small></div>
+    <a id="call" class="call" href="#" hidden>Позвонить</a>
+  </header>
+  {% if preview %}<div class="note">Предпросмотр из панели: вы видите приложение как клиент. Заявки отсюда попадают в список как тестовые.</div>{% endif %}
+
+  <main id="screen-loading" class="screen"><div class="spinner"></div><p class="muted center">Загружаем…</p></main>
+
+  <main id="screen-error" class="screen" hidden>
+    <div class="card"><h2>Не получилось открыть</h2><p id="error-text"></p>
+      <button class="primary wide" id="retry">Попробовать ещё раз</button></div>
+  </main>
+
+  <main id="screen-home" class="screen" hidden>
+    <section class="card hero">
+      <h1>Здравствуйте, <span id="user-name"></span>!</h1>
+      <p id="about" class="muted"></p>
+      <p class="muted" id="hours"></p>
+    </section>
+    <div class="big-buttons">
+      <button class="big primary" data-go="book">Записаться на сервис</button>
+      <button class="big" data-go="chat">Задать вопрос</button>
+      <button class="big" data-go="list">Мои заявки <span class="badge" id="count-badge" hidden></span></button>
+    </div>
+    <section class="card" id="faq-card" hidden>
+      <h2>Частые вопросы</h2>
+      <div id="faq"></div>
+    </section>
+  </main>
+
+  <main id="screen-book" class="screen" hidden>
+    <h1>Записаться на сервис</h1>
+    <form id="book-form" class="form" novalidate>
+      <div class="field"><label>Что нужно сделать</label><div id="services" class="choices"></div>
+        <div class="error" data-for="service"></div></div>
+      <div class="field"><label for="f-name">Как к вам обращаться</label>
+        <input id="f-name" name="name" autocomplete="name" maxlength="100"><div class="error" data-for="name"></div></div>
+      <div class="field"><label for="f-phone">Телефон для связи</label>
+        <input id="f-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 900 000-00-00"><div class="error" data-for="phone"></div></div>
+      <div class="field"><label for="f-address">Адрес бассейна</label>
+        <input id="f-address" name="address" autocomplete="street-address" maxlength="300" placeholder="Город, улица, дом или посёлок"><div class="error" data-for="address"></div></div>
+      <div class="field"><label for="f-pool">Бассейн</label>
+        <input id="f-pool" name="pool" maxlength="200" placeholder="Например: уличный, 8×4 м, 50 м³"><div class="error" data-for="pool"></div></div>
+      <div class="row">
+        <div class="field"><label for="f-date">Желаемая дата</label><input id="f-date" name="date" type="date"><div class="error" data-for="date"></div></div>
+        <div class="field"><label for="f-time">Время</label><select id="f-time" name="time"></select></div>
+      </div>
+      <div class="field"><label for="f-comment">Комментарий</label>
+        <textarea id="f-comment" name="comment" rows="3" maxlength="2000" placeholder="Что беспокоит, какое оборудование, как проехать"></textarea></div>
+      <div class="error" data-for="form"></div>
+      <button class="primary wide big" type="submit" id="book-submit">Отправить заявку</button>
+      <p class="muted small">Менеджер перезвонит, уточнит детали и назовёт стоимость. Подтверждение придёт сообщением от бота.</p>
+    </form>
+  </main>
+
+  <main id="screen-done" class="screen" hidden>
+    <div class="card center">
+      <div class="check">✓</div>
+      <h2>Заявка принята</h2>
+      <p id="done-text"></p>
+      <button class="primary wide" data-go="list">Мои заявки</button>
+      <button class="wide" data-go="home">На главную</button>
+    </div>
+  </main>
+
+  <main id="screen-list" class="screen" hidden>
+    <h1>Мои заявки</h1>
+    <div id="bookings"></div>
+    <button class="primary wide big" data-go="book">Новая заявка</button>
+  </main>
+
+  <main id="screen-chat" class="screen chat-screen" hidden>
+    <div id="chat" class="chat"></div>
+    <form id="chat-form" class="chat-form">
+      <input id="chat-input" placeholder="Напишите вопрос…" autocomplete="off" maxlength="2000">
+      <button class="primary" type="submit" id="chat-send">➤</button>
+    </form>
+  </main>
+
+  <nav class="tabs" id="tabs" hidden>
+    <button data-go="home" class="active">Главная</button>
+    <button data-go="book">Запись</button>
+    <button data-go="chat">Вопрос</button>
+    <button data-go="list">Заявки</button>
+  </nav>
+</div>
+</body>
+</html>

@@ -445,7 +445,7 @@ TELEGRAM = NodeType(
     ],
 )
 
-MAX_API = "https://platform-api.max.ru"
+MAX_API = "https://platform-api2.max.ru"
 
 
 async def max_exec(ctx: NodeContext):
